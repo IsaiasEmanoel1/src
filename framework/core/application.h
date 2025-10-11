@@ -24,6 +24,7 @@
 #define APPLICATION_H
 
 #include <framework/global.h>
+#include <framework/core/adaptativeframecounter.h>
 
 //@bindsingleton g_app
 class Application
@@ -38,10 +39,7 @@ public:
     virtual void run() = 0;
     virtual void poll();
     virtual void exit();
-    virtual void quick_exit();
     virtual void close();
-    void restart();
-    void restartArgs(const std::vector<std::string>& args);
 
     void setName(const std::string& name) { m_appName = name; }
     void setCompactName(const std::string& compactName) { m_appCompactName = compactName; }
@@ -57,22 +55,12 @@ public:
     std::string getCharset() { return m_charset; }
     std::string getBuildCompiler() { return BUILD_COMPILER; }
     std::string getBuildDate() { return std::string(__DATE__); }
-    std::string getBuildRevision() { return std::to_string(BUILD_REVISION); }
+    std::string getBuildRevision() { return BUILD_REVISION; }
     std::string getBuildCommit() { return BUILD_COMMIT; }
-#ifdef FREE_VERSION
-    std::string getBuildType() { return "FREE"; }
-#else
-    std::string getBuildType() { return "FULL"; }
-#endif
+    std::string getBuildType() { return BUILD_TYPE; }
     std::string getBuildArch() { return BUILD_ARCH; }
-    std::string getAuthor() { return "otclient.net"; }
     std::string getOs();
     std::string getStartupOptions() { return m_startupOptions; }
-
-    bool isMobile()
-    {
-        return m_mobile;
-    }
 
 protected:
     void registerLuaFunctions();
@@ -85,7 +73,6 @@ protected:
     stdext::boolean<false> m_running;
     stdext::boolean<false> m_stopping;
     stdext::boolean<false> m_terminated;
-    stdext::boolean<false> m_mobile;
 };
 
 #ifdef FW_GRAPHICS

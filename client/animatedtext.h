@@ -39,7 +39,6 @@ public:
     void setColor(int color);
     void setText(const std::string& text);
     void setOffset(const Point& offset) { m_offset = offset; }
-    void setFont(const std::string& fontName);
 
     Color getColor() { return m_color; }
     const CachedText& getCachedText() const { return m_cachedText; }
@@ -50,7 +49,6 @@ public:
 
     AnimatedTextPtr asAnimatedText() { return static_self_cast<AnimatedText>(); }
     bool isAnimatedText() { return true; }
-    std::string getText() { return m_cachedText.getText(); }
 
 protected:
     virtual void onAppear();

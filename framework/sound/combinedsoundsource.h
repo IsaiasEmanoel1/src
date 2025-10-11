@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#ifdef FW_SOUND
-
 #ifndef COMBINEDSOUNDSOURCE_H
 #define COMBINEDSOUNDSOURCE_H
 
@@ -56,7 +54,5 @@ protected:
 private:
     std::vector<SoundSourcePtr> m_sources;
 };
-
-#endif
 
 #endif

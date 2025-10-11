@@ -23,8 +23,8 @@
 #include "logger.h"
 #include "eventdispatcher.h"
 
+//#include <boost/regex.hpp>
 #include <framework/core/resourcemanager.h>
-#include <framework/core/graphicalapplication.h>
 
 #ifdef FW_GRAPHICS
 #include <framework/platform/platformwindow.h>
@@ -36,10 +36,7 @@ Logger g_logger;
 
 void Logger::log(Fw::LogLevel level, const std::string& message)
 {
-    std::unique_lock<std::recursive_mutex> lock(m_mutex, std::try_to_lock);
-    if (!lock.owns_lock()) {
-        return;
-    }
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
 
 #ifdef NDEBUG
     if(level == Fw::LogDebug)
@@ -51,18 +48,31 @@ void Logger::log(Fw::LogLevel level, const std::string& message)
         return;
 
     const static std::string logPrefixes[] = { "", "", "WARNING: ", "ERROR: ", "FATAL ERROR: " };
+
     std::string outmsg = logPrefixes[level] + message;
-#ifdef ANDROID
-    const static int logPriorities[] = { ANDROID_LOG_INFO, ANDROID_LOG_INFO, ANDROID_LOG_WARN, ANDROID_LOG_ERROR, ANDROID_LOG_FATAL };
-    __android_log_print(logPriorities[level], "OTCLIENTV8", "%s", outmsg.c_str());
-#else
+
+    /*
+#if !defined(NDEBUG) && !defined(WIN32)
+    // replace paths for improved debug with vim
+    std::stringstream tmp;
+    boost::smatch m;
+    boost::regex e ("/[^ :]+");
+    while(boost::regex_search(outmsg,m,e)) {
+        tmp << m.prefix().str();
+        tmp << g_resources.getRealDir(m.str()) << m.str();
+        outmsg = m.suffix().str();
+    }
+    if(!tmp.str().empty())
+        outmsg = tmp.str();
+#endif
+    */
+
     std::cout << outmsg << std::endl;
 
     if(m_outFile.good()) {
         m_outFile << outmsg << std::endl;
         m_outFile.flush();
     }
-#endif
 
     std::size_t now = std::time(NULL);
     m_logMessages.push_back(LogMessage(level, outmsg, now));
@@ -77,18 +87,12 @@ void Logger::log(Fw::LogLevel level, const std::string& message)
         });
     }
 
-    if(level == Fw::LogFatal || (m_testingMode && level == Fw::LogError)) {
+    if(level == Fw::LogFatal) {
 #ifdef FW_GRAPHICS
-        if (!m_testingMode) {
-            g_window.displayFatalError(message);
-        }
+        g_window.displayFatalError(message);
 #endif
         ignoreLogs = true;
-#ifdef _MSC_VER
-        ::quick_exit(-1);
-#else
         exit(-1);
-#endif
     }
 }
 
@@ -127,22 +131,7 @@ void Logger::fireOldMessages()
 
 void Logger::setLogFile(const std::string& file)
 {
-#ifndef ANDROID
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
-    m_outFile.open(stdext::utf8_to_latin1(file.c_str()).c_str(), std::ios::in | std::ios::binary);
-    if (m_outFile.is_open()) {
-        m_outFile.seekg(0, m_outFile.end);
-        int length = m_outFile.tellg();
-        int offset = std::max<int>(0, length - 100000);
-        length -= offset;
-        m_outFile.seekg(offset, m_outFile.beg);
-        if (length > 0) {
-            m_lastLog.resize(length);
-            m_outFile.read(&m_lastLog[0], length);
-            m_lastLog.resize(m_outFile.gcount());
-        }
-        m_outFile.close();
-    }
 
     m_outFile.open(stdext::utf8_to_latin1(file.c_str()).c_str(), std::ios::out | std::ios::app);
     if(!m_outFile.is_open() || !m_outFile.good()) {
@@ -150,10 +139,4 @@ void Logger::setLogFile(const std::string& file)
         return;
     }
     m_outFile.flush();
-#endif
-}
-
-void fatalError(const char* error, const char* file, int line)
-{
-    g_logger.fatal(stdext::format("Fatal error: %s\nIn: %s:%i", error, file, line));
 }

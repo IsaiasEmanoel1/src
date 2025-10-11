@@ -33,7 +33,9 @@ LuaObject::LuaObject() :
 
 LuaObject::~LuaObject()
 {
-    VALIDATE(!g_app.isTerminated());
+#ifndef NDEBUG
+    assert(!g_app.isTerminated());
+#endif
     releaseLuaFieldsTable();
 }
 

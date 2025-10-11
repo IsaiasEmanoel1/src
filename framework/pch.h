@@ -1,3 +1,5 @@
+#include <clocale> // <--- SUBSTITUA A LINHA ANTIGA POR ESTA
+
 /*
  * Copyright (c) 2010-2017 OTClient <https://github.com/edubart/otclient>
  *
@@ -28,6 +30,7 @@
 #include <cstdlib>
 #include <cstddef>
 #include <cstring>
+#include <cassert>
 #include <cmath>
 
 // common STL headers
@@ -35,7 +38,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <set>
 #include <list>
 #include <deque>
 #include <map>
@@ -43,51 +45,8 @@
 #include <functional>
 #include <array>
 #include <unordered_map>
-#include <unordered_set>
 #include <tuple>
 #include <iomanip>
 #include <typeinfo>
-
-// new
-#include <thread>
-#include <memory>
-#include <functional>
-#include <condition_variable>
-#include <mutex>
-#include <future>
-#include <chrono>
-#include <random>
-#ifndef ANDROID
-#include <filesystem>
-#endif
-
- // boost
-#ifdef ANDROID
-#define BOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX
-#endif
-#include <boost/system/config.hpp>
-#include <boost/system/error_code.hpp>
-#include <boost/asio.hpp>
-#include <boost/beast.hpp>
-
-#include <boost/asio/io_service.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#ifndef __EMSCRIPTEN__
-#include <boost/asio/ssl.hpp>
-
-#include <boost/beast/ssl.hpp>
-#endif
-#include <boost/beast/core/flat_buffer.hpp>
-#include <boost/beast/http/write.hpp>
-#include <boost/beast/http/string_body.hpp>
-#include <boost/beast/http/dynamic_body.hpp>
-#include <boost/beast/http/read.hpp>
-#include <boost/beast/http/parser.hpp>
-#ifndef __EMSCRIPTEN__
-#include <boost/beast/websocket.hpp>
-#include <boost/beast/websocket/ssl.hpp>
-#endif
-
-#include <boost/algorithm/hex.hpp>
 
 #endif

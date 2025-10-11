@@ -27,6 +27,7 @@ distribution.
 #ifndef TIXML_STRING_INCLUDED
 #define TIXML_STRING_INCLUDED
 
+#include <assert.h>
 #include <string.h>
 
 /*    The support for explicit isn't that universal, and it isn't really
@@ -145,14 +146,14 @@ class TiXmlString
     // single char extraction
     const char& at (size_type index) const
     {
-        VALIDATE( index < length() );
+        assert( index < length() );
         return rep_->str[ index ];
     }
 
     // [] operator
     char& operator [] (size_type index) const
     {
-        VALIDATE( index < length() );
+        assert( index < length() );
         return rep_->str[ index ];
     }
 

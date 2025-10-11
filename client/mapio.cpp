@@ -38,9 +38,10 @@ void Map::loadOtbm(const std::string& fileName)
         if(!g_things.isOtbLoaded())
             stdext::throw_exception("OTB isn't loaded yet to load a map.");
 
-        FileStreamPtr fin = g_resources.openFile(fileName, g_game.getFeature(Otc::GameDontCacheFiles));
+        FileStreamPtr fin = g_resources.openFile(fileName);
         if(!fin)
             stdext::throw_exception(stdext::format("Unable to load map '%s'", fileName));
+        fin->cache();
 
         char identifier[4];
         if(fin->read(identifier, 1, 4) < 4)
@@ -234,6 +235,7 @@ void Map::saveOtbm(const std::string& fileName)
         if(!fin)
             stdext::throw_exception(stdext::format("failed to open file '%s' for write", fileName));
 
+        fin->cache();
         std::string dir;
         if(fileName.find_last_of('/') == std::string::npos)
             dir = g_resources.getWorkDir();
@@ -395,9 +397,11 @@ void Map::saveOtbm(const std::string& fileName)
 bool Map::loadOtcm(const std::string& fileName)
 {
     try {
-        FileStreamPtr fin = g_resources.openFile(fileName, g_game.getFeature(Otc::GameDontCacheFiles));
+        FileStreamPtr fin = g_resources.openFile(fileName);
         if(!fin)
             stdext::throw_exception("unable to open file");
+
+        fin->cache();
 
         uint32 signature = fin->getU32();
         if(signature != OTCM_SIGNATURE)
@@ -473,6 +477,7 @@ void Map::saveOtcm(const std::string& fileName)
         stdext::timer saveTimer;
 
         FileStreamPtr fin = g_resources.createFile(fileName);
+        fin->cache();
 
         //TODO: compression flag with zlib
         uint32 flags = 0;

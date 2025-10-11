@@ -32,20 +32,16 @@
 class BitmapFont : public stdext::shared_object
 {
 public:
-    BitmapFont(const std::string& name) : m_name(name) {
-        static int id = 1;
-        m_id = id++;
-    }
+    BitmapFont(const std::string& name) : m_name(name) { }
 
     /// Load font from otml node
     void load(const OTMLNodePtr& fontNode);
 
     /// Simple text render starting at startPos
-    void drawText(const std::string& text, const Point& startPos, const Color& color = Color::white, bool shadow = false);
+    void drawText(const std::string& text, const Point& startPos);
 
     /// Advanced text render delimited by a screen region and alignment
-    void drawText(const std::string& text, const Rect& screenCoords, Fw::AlignmentFlag align = Fw::AlignTopLeft, const Color& color = Color::white, bool shadow = false);
-    void drawColoredText(const std::string& text, const Rect& screenCoords, Fw::AlignmentFlag align, const std::vector<std::pair<int, Color>>& colors, bool shadow = false);
+    void drawText(const std::string& text, const Rect& screenCoords, Fw::AlignmentFlag align = Fw::AlignTopLeft);
 
     void calculateDrawTextCoords(CoordsBuffer& coordsBuffer, const std::string& text, const Rect& screenCoords, Fw::AlignmentFlag align = Fw::AlignTopLeft);
 
@@ -57,9 +53,8 @@ public:
     /// Simulate render and calculate text size
     Size calculateTextRectSize(const std::string& text);
 
-    std::string wrapText(const std::string& text, int maxWidth, std::vector<std::pair<int, Color>>* colors = nullptr);
+    std::string wrapText(const std::string& text, int maxWidth);
 
-    int getId() { return m_id; }
     std::string getName() { return m_name; }
     int getGlyphHeight() { return m_glyphHeight; }
     const Rect* getGlyphsTextureCoords() { return m_glyphsTextureCoords; }
@@ -71,13 +66,11 @@ public:
 private:
     /// Calculates each font character by inspecting font bitmap
     void calculateGlyphsWidthsAutomatically(const ImagePtr& image, const Size& glyphSize);
-    void updateColors(std::vector<std::pair<int, Color>>* colors, int pos, int newTextLen);
 
     std::string m_name;
     int m_glyphHeight;
     int m_firstGlyph;
     int m_yOffset;
-    int m_id;
     Size m_glyphSpacing;
     TexturePtr m_texture;
     Rect m_glyphsTextureCoords[256];

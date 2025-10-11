@@ -58,22 +58,11 @@ public:
     void setLogFile(const std::string& file);
     void setOnLog(const OnLogCallback& onLog) { m_onLog = onLog; }
 
-    std::string getLastLog() {
-        return m_lastLog;
-    }
-
-    void setTestingMode()
-    {
-        m_testingMode = true;
-    }
-
 private:
     std::list<LogMessage> m_logMessages;
     OnLogCallback m_onLog;
-    std::fstream m_outFile;
+    std::ofstream m_outFile;
     std::recursive_mutex m_mutex;
-    std::string m_lastLog;
-    bool m_testingMode = false;
 };
 
 extern Logger g_logger;

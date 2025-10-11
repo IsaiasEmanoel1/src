@@ -52,7 +52,7 @@ int UIPositionAnchor::getHookedPoint(const UIWidgetPtr& hookedWidget, const UIWi
                 break;
             default:
                 // must never happens
-                VALIDATE(false);
+                assert(false);
                 break;
         }
     }
@@ -64,7 +64,7 @@ void UIMapAnchorLayout::addPositionAnchor(const UIWidgetPtr& anchoredWidget, Fw:
     if(!anchoredWidget)
         return;
 
-    VALIDATE(anchoredWidget != getParentWidget());
+    assert(anchoredWidget != getParentWidget());
 
     UIPositionAnchorPtr anchor(new UIPositionAnchor(anchoredEdge, hookedPosition, hookedEdge));
     UIAnchorGroupPtr& anchorGroup = m_anchorsGroups[anchoredWidget];

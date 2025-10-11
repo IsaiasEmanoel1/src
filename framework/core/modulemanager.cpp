@@ -25,7 +25,6 @@
 
 #include <framework/otml/otml.h>
 #include <framework/core/application.h>
-#include <list>
 
 ModuleManager g_modules;
 
@@ -40,24 +39,15 @@ void ModuleManager::discoverModules()
     // remove modules that are not loaded
     m_autoLoadModules.clear();
 
-    auto dirs = g_resources.listDirectoryFiles("/modules", true);
-    std::list<std::string> modules;
-    for (auto& dir : dirs) {
-        auto subFilesAndDirs = g_resources.listDirectoryFiles(dir, true);
-        modules.insert(modules.end(), subFilesAndDirs.begin(), subFilesAndDirs.end());
-    }
-
-    dirs = g_resources.listDirectoryFiles("/mods", true);
-    for (auto& dir : dirs) {
-        auto subFilesAndDirs = g_resources.listDirectoryFiles(dir, true);
-        modules.insert(modules.end(), subFilesAndDirs.begin(), subFilesAndDirs.end());
-    }
-
-    for (auto& mod : modules) {
-        if (g_resources.isFileType(mod, "otmod")) {
-            ModulePtr module = discoverModule(mod);
-            if (module && module->isAutoLoad())
-                m_autoLoadModules.insert(std::make_pair(module->getAutoLoadPriority(), module));
+    auto moduleDirs = g_resources.listDirectoryFiles("/");
+    for(const std::string& moduleDir : moduleDirs) {
+        auto moduleFiles = g_resources.listDirectoryFiles("/" + moduleDir);
+        for(const std::string& moduleFile : moduleFiles) {
+            if(g_resources.isFileType(moduleFile, "otmod")) {
+                ModulePtr module = discoverModule("/" + moduleDir + "/" + moduleFile);
+                if(module && module->isAutoLoad())
+                    m_autoLoadModules.insert(std::make_pair(module->getAutoLoadPriority(), module));
+            }
         }
     }
 }

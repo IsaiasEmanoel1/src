@@ -33,24 +33,17 @@ public:
 
     static ImagePtr load(std::string file);
     static ImagePtr loadPNG(const std::string& file);
-    static ImagePtr loadPNG(const void* data, uint32_t size);
 
     void savePNG(const std::string& fileName);
 
+    void overwriteMask(const Color& maskedColor, const Color& insideColor = Color::white, const Color& outsideColor = Color::alpha);
     void blit(const Point& dest, const ImagePtr& other);
     void paste(const ImagePtr& other);
-    ImagePtr upscale();
     void resize(const Size& size) { m_size = size; m_pixels.resize(size.area() * m_bpp, 0); }
     bool nextMipmap();
 
     void setPixel(int x, int y, uint8 *pixel) { memcpy(&m_pixels[(y * m_size.width() + x) * m_bpp], pixel, m_bpp);}
-    void setPixel(int x, int y, uint32_t argb) { setPixel(x, y, (uint8*)&argb); }
-    void setPixel(int x, int y, const Color& color) {
-        m_pixels[(y * m_size.width() + x) * m_bpp] = color.r();
-        m_pixels[(y * m_size.width() + x) * m_bpp + 1] = color.g();
-        m_pixels[(y * m_size.width() + x) * m_bpp + 2] = color.b();
-        m_pixels[(y * m_size.width() + x) * m_bpp + 3] = color.a();
-    }
+    void setPixel(int x, int y, const Color& color) { uint32 tmp = color.rgba(); setPixel(x,y,(uint8*)&tmp); }
 
     std::vector<uint8>& getPixels() { return m_pixels; }
     uint8* getPixelData() { return &m_pixels[0]; }
@@ -60,8 +53,6 @@ public:
     int getHeight() { return m_size.height(); }
     int getBpp() { return m_bpp; }
     uint8* getPixel(int x, int y) { return &m_pixels[(y * m_size.width() + x) * m_bpp]; }
-
-    static ImagePtr fromQRCode(const std::string& code, int border);
 
 private:
     std::vector<uint8> m_pixels;

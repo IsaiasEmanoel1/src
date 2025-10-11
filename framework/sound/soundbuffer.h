@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#ifdef FW_SOUND
-
 #ifndef SOUNDBUFFER_H
 #define SOUNDBUFFER_H
 
@@ -43,7 +41,5 @@ public:
 private:
     uint m_bufferId;
 };
-
-#endif
 
 #endif

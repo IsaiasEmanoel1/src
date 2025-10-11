@@ -31,7 +31,7 @@ CachedText::CachedText()
     m_align = Fw::AlignCenter;
 }
 
-void CachedText::draw(const Rect& rect, const Color& color)
+void CachedText::draw(const Rect& rect)
 {
     if(!m_font)
         return;
@@ -39,30 +39,13 @@ void CachedText::draw(const Rect& rect, const Color& color)
     if(m_textMustRecache || m_textCachedScreenCoords != rect) {
         m_textMustRecache = false;
         m_textCachedScreenCoords = rect;
+
+        m_textCoordsBuffer.clear();
+        m_font->calculateDrawTextCoords(m_textCoordsBuffer, m_text, rect, Fw::AlignCenter);
     }
 
-    if (m_textColors.empty()) {
-        m_font->drawText(m_text, m_textCachedScreenCoords, Fw::AlignCenter, color);
-    } else {
-        m_font->drawColoredText(m_text, m_textCachedScreenCoords, Fw::AlignCenter, m_textColors);
-    }
-}
-
-void CachedText::setColoredText(const std::vector<std::string>& texts)
-{
-    m_text = "";
-    m_textColors.clear();
-    for (size_t i = 0, p = 0; i < texts.size() - 1; i += 2) {
-        Color c(Color::white);
-        stdext::cast<Color>(texts[i + 1], c);
-        m_text += texts[i];
-        for (auto& c : texts[i]) {
-            if ((uint8)c >= 32)
-                p += 1;
-        }
-        m_textColors.push_back(std::make_pair(p, c));
-    }
-    update();
+    if(m_font->getTexture())
+        g_painter->drawTextureCoords(m_textCoordsBuffer, m_font->getTexture());
 }
 
 void CachedText::update()
@@ -75,7 +58,7 @@ void CachedText::update()
 void CachedText::wrapText(int maxWidth)
 {
     if(m_font) {
-        m_text = m_font->wrapText(m_text, maxWidth, m_textColors.empty() ? nullptr : &m_textColors);
+        m_text = m_font->wrapText(m_text, maxWidth);
         update();
     }
 }

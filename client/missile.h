@@ -35,7 +35,7 @@ class Missile : public Thing
     };
 
 public:
-    void draw(const Point& dest, bool animate = true, LightView* lightView = nullptr);
+    void draw(const Point& dest, float scaleFactor, bool animate, LightView *lightView = nullptr);
 
     void setId(uint32 id);
     void setPath(const Position& fromPosition, const Position& toPosition);
@@ -48,16 +48,12 @@ public:
     const ThingTypePtr& getThingType();
     ThingType *rawGetThingType();
 
-    Position getSource() { return m_source; }
-    Position getDestination() { return m_destination; }
-
 private:
     Timer m_animationTimer;
     Point m_delta;
     float m_duration;
     uint16 m_id;
     Otc::Direction m_direction;
-    Position m_source, m_destination;
 };
 
 #endif

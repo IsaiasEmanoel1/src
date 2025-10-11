@@ -25,19 +25,23 @@
 
 CoordsBuffer::CoordsBuffer()
 {
-    m_vertexArray = std::make_shared<VertexArray>();
-    m_textureCoordArray = std::make_shared<VertexArray>();
+    m_hardwareCacheMode = HardwareBuffer::DynamicDraw;
+    m_hardwareVertexArray = nullptr;
+    m_hardwareTextureCoordArray = nullptr;
+    m_hardwareCached = false;
+    m_hardwareCaching = false;
 }
 
 CoordsBuffer::~CoordsBuffer()
 {
+    if(m_hardwareVertexArray)
+        delete m_hardwareVertexArray;
+    if(m_hardwareTextureCoordArray)
+        delete m_hardwareTextureCoordArray;
 }
 
 void CoordsBuffer::addBoudingRect(const Rect& dest, int innerLineWidth)
 {
-    if (m_locked)
-        unlock();
-
     int left = dest.left();
     int right = dest.right();
     int top = dest.top();
@@ -56,8 +60,6 @@ void CoordsBuffer::addRepeatedRects(const Rect& dest, const Rect& src)
 {
     if(dest.isEmpty() || src.isEmpty())
         return;
-    if (m_locked)
-        unlock();
 
     Rect virtualDest(0, 0, dest.size());
     for(int y = 0; y <= virtualDest.height(); y += src.height()) {
@@ -76,40 +78,47 @@ void CoordsBuffer::addRepeatedRects(const Rect& dest, const Rect& src)
             }
 
             partialDest.translate(dest.topLeft());
-            m_vertexArray->addRect(partialDest);
-            m_textureCoordArray->addRect(partialSrc);
+            m_vertexArray.addRect(partialDest);
+            m_textureCoordArray.addRect(partialSrc);
         }
     }
+    m_hardwareCached = false;
 }
 
-void CoordsBuffer::unlock(bool clear)
+void CoordsBuffer::enableHardwareCaching(HardwareBuffer::UsagePattern usagePattern)
 {
-    m_locked = false;
-    if (clear) {
-        m_vertexArray = std::make_shared<VertexArray>();
-        m_textureCoordArray = std::make_shared<VertexArray>();
-    } else {
-        m_vertexArray = std::make_shared<VertexArray>(*m_vertexArray);
-        m_textureCoordArray = std::make_shared<VertexArray>(*m_textureCoordArray);
-    }
+    if(!g_graphics.canUseHardwareBuffers())
+        return;
+
+    m_hardwareCacheMode = usagePattern;
+    m_hardwareCaching = true;
+    m_hardwareCached = false;
 }
 
-Rect CoordsBuffer::getTextureRect()
+void CoordsBuffer::updateCaches()
 {
-    float* vertices = getTextureCoordArray();
-    int size = getTextureCoordCount() * 2;
-    float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
-    for (int i = 0; i < size; i += 2) {
-        float x = vertices[i];
-        float y = vertices[i + 1]; 
-        if (x < x1)
-            x1 = x;
-        else if (x > x2)
-            x2 = x;
-        if (y < y1)
-            y1 = y;
-        else if (y > y2)
-            y2 = y;
+    if(!m_hardwareCaching || m_hardwareCached)
+        return;
+
+    int vertexCount = m_vertexArray.vertexCount();
+
+    // there is only performance improvement when caching a lot of vertices
+    if(vertexCount < CACHE_MIN_VERTICES_COUNT)
+        return;
+
+    if(vertexCount > 0) {
+        if(!m_hardwareVertexArray && m_vertexArray.vertexCount() > 0)
+            m_hardwareVertexArray = new HardwareBuffer(HardwareBuffer::VertexBuffer);
+        m_hardwareVertexArray->bind();
+        m_hardwareVertexArray->write((void*)m_vertexArray.vertices(), m_vertexArray.size() * sizeof(float), m_hardwareCacheMode);
     }
-    return Rect(Point(x1, y1), Point(x2, y2));
+
+    if(m_textureCoordArray.vertexCount() > 0) {
+        if(!m_hardwareTextureCoordArray && m_textureCoordArray.vertexCount() > 0)
+            m_hardwareTextureCoordArray = new HardwareBuffer(HardwareBuffer::VertexBuffer);
+        m_hardwareTextureCoordArray->bind();
+        m_hardwareTextureCoordArray->write((void*)m_textureCoordArray.vertices(), m_textureCoordArray.size() * sizeof(float), m_hardwareCacheMode);
+    }
+
+    m_hardwareCached = true;
 }

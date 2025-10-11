@@ -82,12 +82,10 @@ std::string OTMLEmitter::emitNode(const OTMLNodePtr& node, int currentDepth)
     }
 
     // emit children
-    int i = 0;
-    for(auto& child : node->children()) {
+    for(int i=0;i<node->size();++i) {
         if(currentDepth >= 0 || i != 0)
             ss << "\n";
-        ss << emitNode(child, currentDepth+1);
-        i += 1;
+        ss << emitNode(node->atIndex(i), currentDepth+1);
     }
 
     return ss.str();

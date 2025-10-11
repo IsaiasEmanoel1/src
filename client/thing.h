@@ -27,7 +27,6 @@
 #include "thingtype.h"
 #include "thingtypemanager.h"
 #include <framework/luaengine/luaobject.h>
-#include <framework/graphics/drawqueue.h>
 
 // @bindclass
 #pragma pack(push,1) // disable memory alignment
@@ -35,9 +34,9 @@ class Thing : public LuaObject
 {
 public:
     Thing();
-    virtual ~Thing();
+    virtual ~Thing() { }
 
-    virtual void draw(const Point& dest, bool animate = true, LightView* lightView = nullptr) { }
+    virtual void draw(const Point& dest, float scaleFactor, bool animate, LightView *lightView = nullptr) { }
 
     virtual void setId(uint32 id) { }
     void setPosition(const Position& position);
@@ -45,19 +44,9 @@ public:
     virtual uint32 getId() { return 0; }
     Position getPosition() { return m_position; }
     int getStackPriority();
-    virtual const TilePtr& getTile();
+    const TilePtr& getTile();
     ContainerPtr getParentContainer();
     int getStackPos();
-
-    void setMarked(const std::string& color) {
-        if (color.empty()) {
-            m_marked = false;
-            return;
-        }
-        m_marked = true;
-        m_markedColor = Color(color);
-    }
-    Color updatedMarkedColor();
 
     virtual bool isItem() { return false; }
     virtual bool isEffect() { return false; }
@@ -86,7 +75,6 @@ public:
     int getNumPatternZ() { return rawGetThingType()->getNumPatternZ(); }
     int getAnimationPhases() { return rawGetThingType()->getAnimationPhases(); }
     AnimatorPtr getAnimator() { return rawGetThingType()->getAnimator(); }
-    AnimatorPtr getIdleAnimator() { return rawGetThingType()->getIdleAnimator(); }
     int getGroundSpeed() { return rawGetThingType()->getGroundSpeed(); }
     int getMaxTextLength() { return rawGetThingType()->getMaxTextLength(); }
     Light getLight() { return rawGetThingType()->getLight(); }
@@ -135,11 +123,6 @@ public:
     bool isTopEffect() { return rawGetThingType()->isTopEffect(); }
     MarketData getMarketData() { return rawGetThingType()->getMarketData(); }
 
-    void hide() { m_hidden = true; }
-    void show() { m_hidden = false; }
-    void setHidden(bool value) { m_hidden = value; }
-    bool isHidden() { return m_hidden; }
-
     virtual void onPositionChange(const Position& newPos, const Position& oldPos) { }
     virtual void onAppear() { }
     virtual void onDisappear() { }
@@ -147,9 +130,6 @@ public:
 protected:
     Position m_position;
     uint16 m_datId;
-    bool m_marked = false;
-    bool m_hidden = false;
-    Color m_markedColor;
 };
 #pragma pack(pop)
 

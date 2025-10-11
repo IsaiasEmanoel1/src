@@ -31,16 +31,15 @@ class OutputMessage : public LuaObject
 {
 public:
     enum {
-        BUFFER_MAXSIZE = 327680,
+        BUFFER_MAXSIZE = 65536,
         MAX_STRING_LENGTH = 65536,
-        MAX_HEADER_SIZE = 12
+        MAX_HEADER_SIZE = 8
     };
 
     OutputMessage();
 
     void reset();
 
-    void setBuffer(const std::string& buffer);
     std::string getBuffer() { return std::string((char*)m_buffer + m_headerPos, m_messageSize); }
 
     void addU8(uint8 value);
@@ -48,16 +47,15 @@ public:
     void addU32(uint32 value);
     void addU64(uint64 value);
     void addString(const std::string& buffer);
-    void addRawString(const std::string& buffer);
     void addPaddingBytes(int bytes, uint8 byte = 0);
 
     void encryptRsa();
 
-    uint32 getWritePos() { return m_writePos; }
-    uint32 getMessageSize() { return m_messageSize; }
+    uint16 getWritePos() { return m_writePos; }
+    uint16 getMessageSize() { return m_messageSize; }
 
-    void setWritePos(uint32 writePos) { m_writePos = writePos; }
-    void setMessageSize(uint32 messageSize) { m_messageSize = messageSize; }
+    void setWritePos(uint16 writePos) { m_writePos = writePos; }
+    void setMessageSize(uint16 messageSize) { m_messageSize = messageSize; }
 
 protected:
     uint8* getWriteBuffer() { return m_buffer + m_writePos; }
@@ -65,19 +63,17 @@ protected:
     uint8* getDataBuffer() { return m_buffer + MAX_HEADER_SIZE; }
 
     void writeChecksum();
-    void writeSequence(uint32_t sequence);
-    void writeMessageSize(bool bigSize);
+    void writeMessageSize();
 
     friend class Protocol;
-    friend class PacketPlayer;
 
 private:
     bool canWrite(int bytes);
     void checkWrite(int bytes);
 
-    uint32 m_headerPos;
-    uint32 m_writePos;
-    uint32 m_messageSize;
+    uint16 m_headerPos;
+    uint16 m_writePos;
+    uint16 m_messageSize;
     uint8 m_buffer[BUFFER_MAXSIZE];
 };
 

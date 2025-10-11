@@ -29,7 +29,7 @@
 class Event : public LuaObject
 {
 public:
-    Event(const std::string& function, const std::function<void()>& callback, bool botSafe = false);
+    Event(const std::function<void()>& callback);
     virtual ~Event();
 
     virtual void execute();
@@ -37,16 +37,11 @@ public:
 
     bool isCanceled() { return m_canceled; }
     bool isExecuted() { return m_executed; }
-    bool isBotSafe() { return m_botSafe; }
-
-    const std::string& getFunction() { return m_function; }
 
 protected:
-    std::string m_function;
     std::function<void()> m_callback;
     bool m_canceled;
     bool m_executed;
-    bool m_botSafe;
 };
 
 #endif

@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#ifdef FW_SOUND
-
 #ifndef SOUNDFILE_H
 #define SOUNDFILE_H
 
@@ -54,7 +52,5 @@ protected:
     int m_bps;
     int m_size;
 };
-
-#endif
 
 #endif

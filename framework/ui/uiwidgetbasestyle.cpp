@@ -43,7 +43,7 @@ void UIWidget::initBaseStyle()
 
     // generate an unique id, this is need because anchored layouts find widgets by id
     static unsigned long id = 1;
-    m_id = std::string("widget") + std::to_string(id++);
+    m_id = stdext::format("widget%d", id++);
 }
 
 void UIWidget::parseBaseStyle(const OTMLNodePtr& styleNode)
@@ -55,14 +55,14 @@ void UIWidget::parseBaseStyle(const OTMLNodePtr& styleNode)
             // load once
             if(m_firstOnStyle) {
                 std::string funcName = node->tag().substr(1);
-                std::string funcOrigin = std::string("@") + node->source() + ": [" + node->tag() + "]";
+                std::string funcOrigin = "@" + node->source() + ": [" + node->tag() + "]";
                 g_lua.loadFunction(node->value(), funcOrigin);
                 luaSetField(funcName);
             }
         // lua fields value
         } else if(stdext::starts_with(node->tag(), "&")) {
             std::string fieldName = node->tag().substr(1);
-            std::string fieldOrigin = std::string("@") + node->source() + ": [" + node->tag() + "]";
+            std::string fieldOrigin = "@" + node->source() + ": [" + node->tag() + "]";
 
             g_lua.evaluateExpression(node->value(), fieldOrigin);
             luaSetField(fieldName);
@@ -128,7 +128,7 @@ void UIWidget::parseBaseStyle(const OTMLNodePtr& styleNode)
             setIconAlign(Fw::translateAlignment(node->value()));
         else if(node->tag() == "opacity")
             setOpacity(node->value<float>());
-        else if (node->tag() == "rotation")
+        else if(node->tag() == "rotation")
             setRotation(node->value<float>());
         else if(node->tag() == "enabled")
             setEnabled(node->value<bool>());
@@ -142,8 +142,6 @@ void UIWidget::parseBaseStyle(const OTMLNodePtr& styleNode)
             setOn(node->value<bool>());
         else if(node->tag() == "focusable")
             setFocusable(node->value<bool>());
-        else if (node->tag() == "auto-draw")
-            setAutoDraw(node->value<bool>());
         else if(node->tag() == "auto-focus")
             setAutoFocusPolicy(Fw::translateAutoFocusPolicy(node->value()));
         else if(node->tag() == "phantom")
@@ -332,10 +330,6 @@ void UIWidget::parseBaseStyle(const OTMLNodePtr& styleNode)
                 }
             }
         }
-        else if (node->tag() == "cursor")
-            setCursor(node->value());
-        else if (node->tag() == "change-cursor-image")
-            setChangeCursorImage(node->value<bool>());
     }
 }
 
@@ -346,7 +340,8 @@ void UIWidget::drawBackground(const Rect& screenCoords)
         drawRect.translate(m_backgroundRect.topLeft());
         if(m_backgroundRect.isValid())
             drawRect.resize(m_backgroundRect.size());
-        g_drawQueue->addFilledRect(drawRect, m_backgroundColor);
+        g_painter->setColor(m_backgroundColor);
+        g_painter->drawFilledRect(drawRect);
     }
 }
 
@@ -354,26 +349,31 @@ void UIWidget::drawBorder(const Rect& screenCoords)
 {
     // top
     if(m_borderWidth.top > 0) {
+        g_painter->setColor(m_borderColor.top);
+
         Rect borderRect(screenCoords.topLeft(), screenCoords.width(), m_borderWidth.top);
-        g_drawQueue->addFilledRect(borderRect, m_borderColor.top);
+        g_painter->drawFilledRect(borderRect);
     }
-    
     // right
     if(m_borderWidth.right > 0) {
-        Rect borderRect(screenCoords.topRight() - Point(m_borderWidth.right - 1, 0), m_borderWidth.right, screenCoords.height());
-        g_drawQueue->addFilledRect(borderRect, m_borderColor.right);
-    }
+        g_painter->setColor(m_borderColor.right);
 
+        Rect borderRect(screenCoords.topRight() - Point(m_borderWidth.right - 1, 0), m_borderWidth.right, screenCoords.height());
+        g_painter->drawFilledRect(borderRect);
+    }
     // bottom
     if(m_borderWidth.bottom > 0) {
-        Rect borderRect(screenCoords.bottomLeft() - Point(0, m_borderWidth.bottom - 1), screenCoords.width(), m_borderWidth.bottom);
-        g_drawQueue->addFilledRect(borderRect, m_borderColor.bottom);
-    }
+        g_painter->setColor(m_borderColor.bottom);
 
+        Rect borderRect(screenCoords.bottomLeft() - Point(0, m_borderWidth.bottom - 1), screenCoords.width(), m_borderWidth.bottom);
+        g_painter->drawFilledRect(borderRect);
+    }
     // left
     if(m_borderWidth.left > 0) {
+        g_painter->setColor(m_borderColor.left);
+
         Rect borderRect(screenCoords.topLeft(), m_borderWidth.left, screenCoords.height());
-        g_drawQueue->addFilledRect(borderRect, m_borderColor.left);
+        g_painter->drawFilledRect(borderRect);
     }
 }
 
@@ -394,20 +394,17 @@ void UIWidget::drawIcon(const Rect& screenCoords)
                 drawRect.alignIn(screenCoords, m_iconAlign);
         }
         drawRect.translate(m_iconOffset);
-        g_drawQueue->addTexturedRect(drawRect, m_icon, m_iconClipRect, m_iconColor);
+        g_painter->setColor(m_iconColor);
+        g_painter->drawTexturedRect(drawRect, m_icon, m_iconClipRect);
     }
 }
 
 void UIWidget::setIcon(const std::string& iconFile)
 {
-    if (iconFile.empty()) {
+    if(iconFile.empty())
         m_icon = nullptr;
-        m_iconPath = "";
-    }
-    else {
+    else
         m_icon = g_textures.getTexture(iconFile);
-        m_iconPath = iconFile;
-    }
     if(m_icon && !m_iconClipRect.isValid())
         m_iconClipRect = Rect(0, 0, m_icon->getSize());
 }

@@ -23,7 +23,6 @@
 #ifndef SCHEDULEDEVENT_H
 #define SCHEDULEDEVENT_H
 
-#include <framework/global.h>
 #include "event.h"
 #include "clock.h"
 
@@ -31,7 +30,7 @@
 class ScheduledEvent : public Event
 {
 public:
-    ScheduledEvent(const std::string& function, const std::function<void()>& callback, int delay, int maxCycles, bool botSafe = false);
+    ScheduledEvent(const std::function<void()>& callback, int delay, int maxCycles);
     void execute();
     bool nextCycle();
 
@@ -48,7 +47,7 @@ private:
     int m_cyclesExecuted;
 };
 
-struct lessScheduledEvent {
+struct lessScheduledEvent : std::binary_function<ScheduledEventPtr, ScheduledEventPtr&, bool> {
     bool operator()(const ScheduledEventPtr& a, const ScheduledEventPtr& b) {
         return  b->ticks() < a->ticks();
     }

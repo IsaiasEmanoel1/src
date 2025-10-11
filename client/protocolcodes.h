@@ -56,34 +56,16 @@ namespace Proto {
         GameServerPing                      = 30,
         GameServerChallenge                 = 31,
         GameServerDeath                     = 40,
-        GameServerSupplyStash               = 41,
-        GameServerSpecialContainer          = 42,
 
         // all in game opcodes must be greater than 50
         GameServerFirstGameOpcode           = 50,
 
         // otclient ONLY
         GameServerExtendedOpcode            = 50,
-        GameServerProgressBar               = 59,
 
         // NOTE: add any custom opcodes in this range
-        // OTClientV8 64-79
-        GameServerNewPing                   = 64,
-        GameServerChangeMapAwareRange       = 66,
-
-        GameServerFeatures                  = 67,
-
-        GameServerNewCancelWalk             = 69,
-        GameServerPredictiveCancelWalk      = 70,
-        GameServerWalkId                    = 71,
-
-        GameServerFloorDescription          = 75,
-
-        GameServerProcessesRequest          = 80,
-        GameServerDllsRequest               = 81,
-        GameServerWindowsRequests           = 82,
-
-        GameServerClientCheck               = 99,
+        // 51 - 99
+        GameServerChangeMapAwareRange       = 51,
 
         // original tibia ONLY
         GameServerFullMap                   = 100,
@@ -101,7 +83,6 @@ namespace Proto {
         GameServerCreateContainer           = 112,
         GameServerChangeInContainer         = 113,
         GameServerDeleteInContainer         = 114,
-        GameServerItemDetail                = 118,
         GameServerSetInventory              = 120,
         GameServerDeleteInventory           = 121,
         GameServerOpenNpcTrade              = 122,
@@ -128,9 +109,6 @@ namespace Proto {
         GameServerCreatureType              = 149,
         GameServerEditText                  = 150,
         GameServerEditList                  = 151,
-        GameServerNews                      = 152,
-        GameUnkown154                       = 154,
-        GameServerBlessDialog               = 155,
         GameServerBlessings                 = 156,
         GameServerPreset                    = 157,
         GameServerPremiumTrigger            = 158, // 1038
@@ -144,7 +122,6 @@ namespace Proto {
         GameServerSpellGroupDelay           = 165, // 870
         GameServerMultiUseDelay             = 166, // 870
         GameServerSetStoreDeepLink          = 168, // 1097
-        GameServerRestingAreaState          = 169,
         GameServerTalk                      = 170,
         GameServerChannels                  = 171,
         GameServerOpenChannel               = 172,
@@ -160,45 +137,20 @@ namespace Proto {
         GameServerWalkWait                  = 182,
         GameServerUnjustifiedStats          = 183,
         GameServerPvpSituations             = 184,
-        GameServerHunting                   = 187,
         GameServerFloorChangeUp             = 190,
         GameServerFloorChangeDown           = 191,
-        GameServerLootContainers            = 192,
-        GameServerTournamentLeaderboard     = 197,
         GameServerChooseOutfit              = 200,
-        GameServerImpactTracker             = 204,
-        GameServerItemsPrices               = 205,
-        GameServerSupplyTracker             = 206,
-        GameServerLootTracker               = 207,
-        GameServerQuestTracker              = 208,
-        GameServerKillTracker               = 209,
         GameServerVipAdd                    = 210,
         GameServerVipState                  = 211,
-        GameServerVipLogoutOrGroupData      = 212,
-        GameServerCyclopediaNewDetails      = 217,
-        GameServerCyclopedia                = 218,
+        GameServerVipLogout                 = 212,
         GameServerTutorialHint              = 220,
-        GameServerCyclopediaMapData         = 221,
-        GameServerDailyRewardState          = 222,
-        GameServerCoinBalance               = 223,
+        GameServerAutomapFlag               = 221,
+        GameServerCoinBalance               = 223, // 1080
         GameServerStoreError                = 224, // 1080
         GameServerRequestPurchaseData       = 225, // 1080
-        GameServerOpenRewardWall            = 226,
-        GameServerDailyReward               = 228,
-        GameServerDailyRewardHistory        = 229,
-        GameServerPreyFreeRolls             = 230,
-        GameServerPreyTimeLeft              = 231,
-        GameServerPreyData                  = 232,
-        GameServerPreyPrices                = 233,
-        GameServerStoreOfferDescription     = 234,
-        GameServerImbuementWindow           = 235,
-        GameServerCloseImbuementWindow      = 236,
-        GameServerMessageDialog             = 237,
-        GameServerResourceBalance           = 238,
-        GameServerTime                      = 239,
         GameServerQuestLog                  = 240,
         GameServerQuestLine                 = 241,
-        GameServerCoinBalanceUpdate         = 242,
+        GameServerCoinBalanceUpdating       = 242, // 1080
         GameServerChannelEvent              = 243, // 910
         GameServerItemInfo                  = 244, // 910
         GameServerPlayerInventory           = 245, // 910
@@ -221,24 +173,16 @@ namespace Proto {
         ClientLeaveGame                     = 20,
         ClientPing                          = 29,
         ClientPingBack                      = 30,
-        
+
         // all in game opcodes must be equal or greater than 50
         ClientFirstGameOpcode               = 50,
 
         // otclient ONLY
         ClientExtendedOpcode                = 50,
+        ClientChangeMapAwareRange           = 51,
 
         // NOTE: add any custom opcodes in this range
-
-        // OTClientV8 64-79
-        ClientNewPing                       = 64,
-        ClientChangeMapAwareRange           = 66,
-
-        ClientNewWalk                       = 69,
-
-        ClientProcessesResponse             = 80,
-        ClientDllsResponse                  = 81,
-        ClientWindowsResponse               = 82,
+        // 51 - 99
 
         // original tibia ONLY
         ClientAutoWalk                      = 100,
@@ -273,7 +217,6 @@ namespace Proto {
         ClientUpContainer                   = 136,
         ClientEditText                      = 137,
         ClientEditList                      = 138,
-        ClientWrapableItem                  = 139,
         ClientLook                          = 140,
         ClientLookCreature                  = 141,
         ClientTalk                          = 150,
@@ -306,17 +249,12 @@ namespace Proto {
         ClientRequestOutfit                 = 210,
         ClientChangeOutfit                  = 211,
         ClientMount                         = 212, // 870
-        ApplyImbuemente                     = 213,
-        ClearingImbuement                   = 214,
-        CloseImbuingWindow                  = 215,
         ClientAddVip                        = 220,
         ClientRemoveVip                     = 221,
         ClientEditVip                       = 222,
         ClientBugReport                     = 230,
         ClientRuleViolation                 = 231,
         ClientDebugReport                   = 232,
-        ClientPreyAction                    = 235,
-        ClientPreyRequest                   = 237,
         ClientTransferCoins                 = 239, // 1080
         ClientRequestQuestLog               = 240,
         ClientRequestQuestLine              = 241,

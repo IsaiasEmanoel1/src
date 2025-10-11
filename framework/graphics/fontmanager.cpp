@@ -20,11 +20,9 @@
  * THE SOFTWARE.
  */
 
-#include "atlas.h"
 #include "fontmanager.h"
 #include "texture.h"
 
-#include <framework/core/eventdispatcher.h>
 #include <framework/core/resourcemanager.h>
 #include <framework/otml/otml.h>
 
@@ -47,12 +45,8 @@ void FontManager::clearFonts()
     m_defaultFont = BitmapFontPtr(new BitmapFont("emptyfont"));
 }
 
-void FontManager::importFont(std::string file)
+bool FontManager::importFont(std::string file)
 {
-    if (g_graphicsThreadId != std::this_thread::get_id()) {
-        g_graphicsDispatcher.addEvent(std::bind(&FontManager::importFont, this, file));
-        return;
-    }
     try {
         file = g_resources.guessFilePath(file, "otfont");
 
@@ -60,8 +54,6 @@ void FontManager::importFont(std::string file)
         OTMLNodePtr fontNode = doc->at("Font");
 
         std::string name = fontNode->valueAt("name");
-        if (fontExists(name))
-            return;
 
         // remove any font with the same name
         for(auto it = m_fonts.begin(); it != m_fonts.end(); ++it) {
@@ -79,8 +71,10 @@ void FontManager::importFont(std::string file)
         if(!m_defaultFont || fontNode->valueAt<bool>("default", false))
             m_defaultFont = font;
 
+        return true;
     } catch(stdext::exception& e) {
         g_logger.error(stdext::format("Unable to load font from file '%s': %s", file, e.what()));
+        return false;
     }
 }
 

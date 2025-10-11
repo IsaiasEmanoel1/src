@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#ifdef FW_SOUND
-
 #ifndef FRAMEWORK_SOUND_DECLARATIONS_H
 #define FRAMEWORK_SOUND_DECLARATIONS_H
 
@@ -29,13 +27,8 @@
 
 #define AL_LIBTYPE_STATIC
 
-#if defined(__APPLE__)
-#include <OpenAL/al.h>
-#include <OpenAL/alc.h>
-#else
-#include <AL/al.h>
-#include <AL/alc.h>
-#endif
+#include <al.h>
+#include <alc.h>
 
 class SoundManager;
 class SoundSource;
@@ -53,7 +46,5 @@ typedef stdext::shared_object_ptr<SoundChannel> SoundChannelPtr;
 typedef stdext::shared_object_ptr<StreamSoundSource> StreamSoundSourcePtr;
 typedef stdext::shared_object_ptr<CombinedSoundSource> CombinedSoundSourcePtr;
 typedef stdext::shared_object_ptr<OggSoundFile> OggSoundFilePtr;
-
-#endif
 
 #endif

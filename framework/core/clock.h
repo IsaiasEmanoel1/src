@@ -36,13 +36,11 @@ public:
     ticks_t micros() { return m_currentMicros; }
     ticks_t millis() { return m_currentMillis; }
     float seconds() { return m_currentSeconds; }
-    ticks_t realMicros();
-    ticks_t realMillis();
 
 private:
-    std::atomic<ticks_t> m_currentMicros;
-    std::atomic<ticks_t> m_currentMillis;
-    std::atomic<float> m_currentSeconds;
+    ticks_t m_currentMicros;
+    ticks_t m_currentMillis;
+    float m_currentSeconds;
 };
 
 extern Clock g_clock;

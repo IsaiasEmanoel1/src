@@ -40,6 +40,7 @@ public:
     void setCursorPos(int pos);
     void setSelection(int start, int end);
     void setCursorVisible(bool enable) { m_cursorVisible = enable; }
+    void setChangeCursorImage(bool enable) { m_changeCursorImage = enable; }
     void setTextHidden(bool hidden);
     void setValidCharacters(const std::string validCharacters) { m_validCharacters = validCharacters; }
     void setShiftNavigation(bool enable) { m_shiftNavigation = enable; }
@@ -51,12 +52,6 @@ public:
     void setSelectionColor(const Color& color) { m_selectionColor = color; }
     void setSelectionBackgroundColor(const Color& color) { m_selectionBackgroundColor = color; }
     void setAutoScroll(bool autoScroll) { m_autoScroll = autoScroll; }
-    void setAutoSubmit(bool autoSubmit) { m_autoSubmit = autoSubmit; }
-
-    void setPlaceholder(std::string placeholder) { m_placeholder = placeholder; }
-    void setPlaceholderColor(const Color& color) { m_placeholderColor = color; }
-    void setPlaceholderAlign(Fw::AlignmentFlag align) { m_placeholderAlign = align; }
-    void setPlaceholderFont(const std::string& fontName);
 
     void moveCursorHorizontally(bool right);
     void moveCursorVertically(bool up);
@@ -87,6 +82,7 @@ public:
     Color getSelectionBackgroundColor() { return m_selectionBackgroundColor; }
     bool hasSelection() { return m_selectionEnd - m_selectionStart > 0; }
     bool isCursorVisible() { return m_cursorVisible; }
+    bool isChangingCursorImage() { return m_changeCursorImage; }
     bool isTextHidden() { return m_textHidden; }
     bool isShiftNavigation() { return m_shiftNavigation; }
     bool isMultiline() { return m_multiline; }
@@ -97,6 +93,7 @@ public:
 protected:
     void updateText();
 
+    virtual void onHoverChange(bool hovered);
     virtual void onStyleApply(const std::string& styleName, const OTMLNodePtr& styleNode);
     virtual void onGeometryChange(const Rect& oldRect, const Rect& newRect);
     virtual void onFocusChange(bool focused, Fw::FocusReason reason);
@@ -125,11 +122,11 @@ private:
     bool m_cursorInRange;
     bool m_cursorVisible;
     bool m_editable;
+    bool m_changeCursorImage;
     std::string m_validCharacters;
     uint m_maxLength;
     bool m_updatesEnabled;
     bool m_autoScroll;
-    bool m_autoSubmit;
 
     bool m_selectable;
     int m_selectionReference;
@@ -145,11 +142,6 @@ private:
     CoordsBuffer m_glyphsTextCoordsBuffer;
     CoordsBuffer m_glyphsSelectCoordsBuffer;
     bool m_glyphsMustRecache;
-
-    std::string m_placeholder;
-    Color m_placeholderColor;
-    Fw::AlignmentFlag m_placeholderAlign;
-    BitmapFontPtr m_placeholderFont;
 };
 
 #endif

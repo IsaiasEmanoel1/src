@@ -79,11 +79,10 @@ public:
     Item();
     virtual ~Item() { }
 
-    static ItemPtr create(int id, int countOrSubtype = 1);
+    static ItemPtr create(int id);
     static ItemPtr createFromOtb(int id);
 
-    void draw(const Point& dest, bool animate = true, LightView* lightView = nullptr);
-    void draw(const Rect& dest, bool animate = true);
+    void draw(const Point& dest, float scaleFactor, bool animate, LightView *lightView = nullptr);
 
     void setId(uint32 id);
     void setOtbId(uint16 id);
@@ -91,9 +90,6 @@ public:
     void setCount(int count) { m_countOrSubType = count; }
     void setSubType(int subType) { m_countOrSubType = subType; }
     void setColor(const Color& c) { m_color = c; }
-    void setTooltip(const std::string& str) { m_tooltip = str; }
-    void setQuickLootFlags(uint32 flags) { m_quickLootFlags = flags; }
-    void setShader(const std::string& str) { m_shader = str; }
 
     int getCountOrSubType() { return m_countOrSubType; }
     int getSubType();
@@ -103,9 +99,6 @@ public:
     uint16 getServerId() { return m_serverId; }
     std::string getName();
     bool isValid();
-    std::string getTooltip() { return m_tooltip; }
-    uint32 getQuickLootFlags() { return m_quickLootFlags; }
-    std::string getShader() { return m_shader; }
 
     void unserializeItem(const BinaryTreePtr& in);
     void serializeItem(const OutputBinaryTreePtr& out);
@@ -116,8 +109,8 @@ public:
     void setDoorId(uint8 doorId) { m_attribs.set(ATTR_HOUSEDOORID, doorId); }
     uint8 getDoorId() { return m_attribs.get<uint8>(ATTR_HOUSEDOORID); }
 
-    uint16 getUniqueId() { return m_attribs.get<uint16>(ATTR_UNIQUE_ID); }
-    uint16 getActionId() { return m_attribs.get<uint16>(ATTR_ACTION_ID); }
+    uint16 getUniqueId() { return m_attribs.get<uint16>(ATTR_ACTION_ID); }
+    uint16 getActionId() { return m_attribs.get<uint16>(ATTR_UNIQUE_ID); }
     void setActionId(uint16 actionId) { m_attribs.set(ATTR_ACTION_ID, actionId); }
     void setUniqueId(uint16 uniqueId) { m_attribs.set(ATTR_UNIQUE_ID, uniqueId); }
 
@@ -157,70 +150,17 @@ public:
     const ThingTypePtr& getThingType();
     ThingType *rawGetThingType();
 
-    void setCustomAttribute(uint16 key, uint64 value) {
-        m_customAttribs.set(key, value);
-    }
-    uint64 getCustomAttribute(uint16 key) {
-        return m_customAttribs.get<uint64>(key);
-    }
-
-    static ImagePtr getPokeIcon(const std::string& p_name);
-
-    // EL CHACOO - TOOLTIP
-    void setPokeballTooltip(std::string poke, uint16_t level, uint16_t gender, std::string nature, uint16_t portrait) {
-        pokename = poke;
-        pokelevel = level;
-        pokegender = gender;
-        pokenature = nature;
-        pokeportrait = portrait;
-    }
-
-    std::string getPokemon() { 
-        return pokename;  
-    }
-
-    uint16_t getLevel() {
-        return pokelevel;
-    }
-
-    uint16_t getGender() {
-        return pokegender;
-    }
-
-    uint16_t getPortrait() {
-        return pokeportrait;
-    }
-
-    std::string getNature() {
-        return pokenature;
-    }
-
-    // EL CHACOO - TOOLTIP END
-
-
 private:
     uint16 m_clientId;
     uint16 m_serverId;
-    uint16 m_countOrSubType;
+    uint8 m_countOrSubType;
     stdext::packed_storage<uint8> m_attribs;
     ItemVector m_containerItems;
     Color m_color;
     bool m_async;
-    std::string m_tooltip;
-    std::string m_shader;
 
-    uint32 m_quickLootFlags;
     uint8 m_phase;
     ticks_t m_lastPhase;
-
-    stdext::packed_storage<uint16> m_customAttribs;
-    
-    // EL CHACOO
-    std::string pokename;
-    uint16_t pokelevel;
-    uint16_t pokegender;
-    std::string pokenature;
-    uint16_t pokeportrait;
 };
 
 #pragma pack(pop)

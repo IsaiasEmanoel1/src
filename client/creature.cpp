@@ -28,359 +28,313 @@
 #include "item.h"
 #include "game.h"
 #include "effect.h"
-#include "luavaluecasts_client.h"
+#include "luavaluecasts.h"
 #include "lightview.h"
-#include "healthbars.h"
 
 #include <framework/graphics/graphics.h>
 #include <framework/core/eventdispatcher.h>
 #include <framework/core/clock.h>
-#include <framework/core/graphicalapplication.h>
 
 #include <framework/graphics/paintershaderprogram.h>
+#include <framework/graphics/ogl/painterogl2_shadersources.h>
 #include <framework/graphics/texturemanager.h>
 #include <framework/graphics/framebuffermanager.h>
 #include "spritemanager.h"
-
-#include <framework/util/stats.h>
-#include <framework/util/extras.h>
-
-std::array<double, Otc::LastSpeedFormula> Creature::m_speedFormula = { -1,-1,-1 };
 
 Creature::Creature() : Thing()
 {
     m_id = 0;
     m_healthPercent = 100;
-    m_manaPercent = -1;
     m_speed = 200;
     m_direction = Otc::South;
-    m_walkDirection = Otc::South;
     m_walkAnimationPhase = 0;
     m_walkedPixels = 0;
+    m_walkTurnDirection = Otc::InvalidDirection;
     m_skull = Otc::SkullNone;
     m_shield = Otc::ShieldNone;
     m_emblem = Otc::EmblemNone;
     m_type = Proto::CreatureTypeUnknown;
     m_icon = Otc::NpcIconNone;
     m_lastStepDirection = Otc::InvalidDirection;
-    m_footLastStep = 0;
     m_nameCache.setFont(g_fonts.getFont("verdana-11px-rounded"));
     m_nameCache.setAlign(Fw::AlignTopCenter);
-    p_levelText.setFont(g_fonts.getFont("lucida-11px-rounded"));
-    p_levelText.setAlign(Fw::AlignTopCenter);
-    p_boostText.setFont(g_fonts.getFont("lucida-11px-rounded"));
-    p_boostText.setAlign(Fw::AlignTopCenter);
     m_footStep = 0;
-    //m_speedFormula.fill(-1);
+    m_speedFormula.fill(-1);
     m_outfitColor = Color::white;
-    m_progressBarPercent = 0;
-    m_progressBarUpdateEvent = nullptr;
-    p_level = 0;
-    p_boost = 0;
-    p_b = "0";
-    p_wl = "0";
-    g_stats.addCreature();
 }
 
-void Creature::setBoost(uint32_t boost)
+void Creature::draw(const Point& dest, float scaleFactor, bool animate, LightView *lightView)
 {
-    p_boostText.setText("+" + stdext::to_string((int)boost));
-    p_boost = boost;
-}
-
-void Creature::setLevel(uint32_t level)
-{
-    p_levelText.setText("Lv." + stdext::to_string((int)level));
-    p_level = level;
-}
-
-void Creature::setWl(std::string w)
-{
-    if(p_level == 0)
-    {
-    p_levelText.setText("Lv." + w);
-    }
-    p_wl = w;
-}
-
-void Creature::setB(std::string b)
-{
-    if(p_boost == 0)
-    {
-    p_boostText.setText("+" + b);
-    }
-    p_b = b;
-}
-
-Creature::~Creature()
-{
-    g_stats.removeCreature();
-}
-
-void Creature::draw(const Point& dest, bool animate, LightView* lightView)
-{   
-    if (!canBeSeen())
+    if(!canBeSeen())
         return;
 
-    const int sprSize = g_sprites.spriteSize();
-    Point jumpOffset = Point(m_jumpOffset.x, m_jumpOffset.y);
-    Point creatureCenter = dest - jumpOffset + m_walkOffset - getDisplacement() + Point(sprSize / 2, sprSize / 2);
-    drawBottomWidgets(creatureCenter, m_walking ? m_walkDirection : m_direction);
+    Point animationOffset = animate ? m_walkOffset : Point(0,0);
 
-    Point animationOffset = animate ? m_walkOffset : Point(0, 0);
-
-    if (m_showTimedSquare && animate) {
-        g_drawQueue->addBoundingRect(Rect(dest - jumpOffset + (animationOffset - getDisplacement() + 2 * g_sprites.getOffsetFactor()), Size(sprSize - 4 * g_sprites.getOffsetFactor(), sprSize - 4 * g_sprites.getOffsetFactor())), 2 * g_sprites.getOffsetFactor(), m_timedSquareColor);
+    if(m_showTimedSquare && animate) {
+        g_painter->setColor(m_timedSquareColor);
+        g_painter->drawBoundingRect(Rect(dest + (animationOffset - getDisplacement() + 2)*scaleFactor, Size(28, 28)*scaleFactor), std::max<int>((int)(2*scaleFactor), 1));
+        g_painter->setColor(Color::white);
     }
 
-    if (m_showStaticSquare && animate) {
-        g_drawQueue->addBoundingRect(Rect(dest - jumpOffset + (animationOffset - getDisplacement()), Size(sprSize, sprSize)), 2 * g_sprites.getOffsetFactor(), m_staticSquareColor);
+    if(m_showStaticSquare && animate) {
+        g_painter->setColor(m_staticSquareColor);
+        g_painter->drawBoundingRect(Rect(dest + (animationOffset - getDisplacement())*scaleFactor, Size(Otc::TILE_PIXELS, Otc::TILE_PIXELS)*scaleFactor), std::max<int>((int)(2*scaleFactor), 1));
+        g_painter->setColor(Color::white);
     }
 
-    if (m_outfit.getCategory() != ThingCategoryCreature)
-        animationOffset -= getDisplacement();
+    internalDrawOutfit(dest + animationOffset * scaleFactor, scaleFactor, animate, animate, m_direction);
+    m_footStepDrawn = true;
 
-    size_t drawQueueSize = g_drawQueue->size();
-    m_outfit.draw(dest - jumpOffset + animationOffset, m_walking ? m_walkDirection : m_direction, m_walkAnimationPhase, true, lightView);
-    if (m_marked) {
-        g_drawQueue->setMark(drawQueueSize, updatedMarkedColor());
+    if(lightView) {
+        Light light = rawGetThingType()->getLight();
+        if(m_light.intensity != light.intensity || m_light.color != light.color)
+            light = m_light;
+
+        // local player always have a minimum light in complete darkness
+        if(isLocalPlayer() && (g_map.getLight().intensity < 64 || m_position.z > Otc::SEA_FLOOR)) {
+            light.intensity = std::max<uint8>(light.intensity, 3);
+            if(light.color == 0 || light.color > 215)
+                light.color = 215;
+        }
+
+        if(light.intensity > 0)
+            lightView->addLightSource(dest + (animationOffset + Point(16,16)) * scaleFactor, scaleFactor, light);
     }
-
-    drawTopWidgets(creatureCenter, m_walking ? m_walkDirection : m_direction);
-
-    Light light = rawGetThingType()->getLight();
-    if (m_light.intensity != light.intensity || m_light.color != light.color)
-        light = m_light;
-
-    // local player always have a minimum light in complete darkness
-    if (isLocalPlayer()) {
-        light.intensity = std::max<uint8>(light.intensity, 2);
-        if (light.color == 0 || light.color > 215)
-            light.color = 215;
-    }
-    
-    if(lightView)
-        lightView->addLight(creatureCenter, light);
 }
 
-void Creature::drawOutfit(const Rect& destRect, Otc::Direction direction, const Color& color, bool animate, bool ui, bool oldScaling)
+void Creature::internalDrawOutfit(Point dest, float scaleFactor, bool animateWalk, bool animateIdle, Otc::Direction direction, LightView *lightView)
 {
-    if (direction == Otc::InvalidDirection)
-        direction = m_direction;
+    g_painter->setColor(m_outfitColor);
 
-    m_outfit.draw(destRect, direction, 0, animate, ui, oldScaling);
+    // outfit is a real creature
+    if(m_outfit.getCategory() == ThingCategoryCreature) {
+        int animationPhase = animateWalk ? m_walkAnimationPhase : 0;
+
+        if(isAnimateAlways() && animateIdle) {
+            int ticksPerFrame = 1000 / getAnimationPhases();
+            animationPhase = (g_clock.millis() % (ticksPerFrame * getAnimationPhases())) / ticksPerFrame;
+        }
+
+        // xPattern => creature direction
+        int xPattern;
+        if(direction == Otc::NorthEast || direction == Otc::SouthEast)
+            xPattern = Otc::East;
+        else if(direction == Otc::NorthWest || direction == Otc::SouthWest)
+            xPattern = Otc::West;
+        else
+            xPattern = direction;
+
+        int zPattern = 0;
+        if(m_outfit.getMount() != 0) {
+            auto datType = g_things.rawGetThingType(m_outfit.getMount(), ThingCategoryCreature);
+            dest -= datType->getDisplacement() * scaleFactor;
+            datType->draw(dest, scaleFactor, 0, xPattern, 0, 0, animationPhase, lightView);
+            dest += getDisplacement() * scaleFactor;
+            zPattern = std::min<int>(1, getNumPatternZ() - 1);
+        }
+
+        PointF jumpOffset = m_jumpOffset * scaleFactor;
+        dest -= Point(stdext::round(jumpOffset.x), stdext::round(jumpOffset.y));
+
+        // yPattern => creature addon
+        for(int yPattern = 0; yPattern < getNumPatternY(); yPattern++) {
+
+            // continue if we dont have this addon
+            if(yPattern > 0 && !(m_outfit.getAddons() & (1 << (yPattern-1))))
+                continue;
+
+            auto datType = rawGetThingType();
+            datType->draw(dest, scaleFactor, 0, xPattern, yPattern, zPattern, animationPhase, yPattern == 0 ? lightView : nullptr);
+
+            if(getLayers() > 1) {
+                Color oldColor = g_painter->getColor();
+                Painter::CompositionMode oldComposition = g_painter->getCompositionMode();
+                g_painter->setCompositionMode(Painter::CompositionMode_Multiply);
+                g_painter->setColor(m_outfit.getHeadColor());
+                datType->draw(dest, scaleFactor, SpriteMaskYellow, xPattern, yPattern, zPattern, animationPhase);
+                g_painter->setColor(m_outfit.getBodyColor());
+                datType->draw(dest, scaleFactor, SpriteMaskRed, xPattern, yPattern, zPattern, animationPhase);
+                g_painter->setColor(m_outfit.getLegsColor());
+                datType->draw(dest, scaleFactor, SpriteMaskGreen, xPattern, yPattern, zPattern, animationPhase);
+                g_painter->setColor(m_outfit.getFeetColor());
+                datType->draw(dest, scaleFactor, SpriteMaskBlue, xPattern, yPattern, zPattern, animationPhase);
+                g_painter->setColor(oldColor);
+                g_painter->setCompositionMode(oldComposition);
+            }
+        }
+    // outfit is a creature imitating an item or the invisible effect
+    } else  {
+        ThingType *type = g_things.rawGetThingType(m_outfit.getAuxId(), m_outfit.getCategory());
+
+        int animationPhase = 0;
+        int animationPhases = type->getAnimationPhases();
+        int animateTicks = Otc::ITEM_TICKS_PER_FRAME;
+
+        // when creature is an effect we cant render the first and last animation phase,
+        // instead we should loop in the phases between
+        if(m_outfit.getCategory() == ThingCategoryEffect) {
+            animationPhases = std::max<int>(1, animationPhases-2);
+            animateTicks = Otc::INVISIBLE_TICKS_PER_FRAME;
+        }
+
+        if(animationPhases > 1) {
+            if(animateIdle)
+                animationPhase = (g_clock.millis() % (animateTicks * animationPhases)) / animateTicks;
+            else
+                animationPhase = animationPhases-1;
+        }
+
+        if(m_outfit.getCategory() == ThingCategoryEffect)
+            animationPhase = std::min<int>(animationPhase+1, animationPhases);
+
+        type->draw(dest - (getDisplacement() * scaleFactor), scaleFactor, 0, 0, 0, 0, animationPhase, lightView);
+    }
+
+    g_painter->resetColor();
+}
+
+void Creature::drawOutfit(const Rect& destRect, bool resize)
+{
+    int exactSize;
+    if(m_outfit.getCategory() == ThingCategoryCreature)
+        exactSize = getExactSize();
+    else
+        exactSize = g_things.rawGetThingType(m_outfit.getAuxId(), m_outfit.getCategory())->getExactSize();
+
+    int frameSize;
+    if(!resize)
+        frameSize = std::max<int>(exactSize * 0.75f, 2 * Otc::TILE_PIXELS * 0.75f);
+    else if(!(frameSize = exactSize))
+        return;
+
+    if(g_graphics.canUseFBO()) {
+        const FrameBufferPtr& outfitBuffer = g_framebuffers.getTemporaryFrameBuffer();
+        outfitBuffer->resize(Size(frameSize, frameSize));
+        outfitBuffer->bind();
+        g_painter->setAlphaWriting(true);
+        g_painter->clear(Color::alpha);
+        internalDrawOutfit(Point(frameSize - Otc::TILE_PIXELS, frameSize - Otc::TILE_PIXELS) + getDisplacement(), 1, false, true, Otc::South);
+        outfitBuffer->release();
+        outfitBuffer->draw(destRect, Rect(0,0,frameSize,frameSize));
+    } else {
+        float scaleFactor = destRect.width() / (float)frameSize;
+        Point dest = destRect.bottomRight() - (Point(Otc::TILE_PIXELS,Otc::TILE_PIXELS) - getDisplacement()) * scaleFactor;
+        internalDrawOutfit(dest, scaleFactor, false, true, Otc::South);
+    }
 }
 
 void Creature::drawInformation(const Point& point, bool useGray, const Rect& parentRect, int drawFlags)
 {
-    if (!g_game.getFeature(Otc::GameOldInformationBar) && g_game.getClientVersion() >= 760) {
-        if (m_healthPercent < 1)  // creature is dead, we get rid of its information bar
-            return;
-    }
+    if(m_healthPercent < 1) // creature is dead
+        return;
 
     Color fillColor = Color(96, 96, 96);
 
-    if (!useGray)
+    if(!useGray)
         fillColor = m_informationColor;
 
-    // calculate main rects - hp/mana
-    Rect backgroundRect = Rect(point.x + m_informationOffset.x - (13.5), point.y + m_informationOffset.y, 27, 4);
+    // calculate main rects
+    Rect backgroundRect = Rect(point.x-(13.5), point.y, 27, 4);
     backgroundRect.bind(parentRect);
 
-    //debug            
-    if (g_extras.debugWalking) {
-        int footDelay = (getStepDuration()) / 3;
-        int footAnimPhases = getWalkAnimationPhases() - 1;
-        m_nameCache.setText(stdext::format("%i %i %i %i %i\n %i %i\n%i %i %i\n%i %i %i %i %i",
-            (int)m_stepDuration, (int)getStepDuration(), getStepDuration(false), (int)m_walkedPixels, (int)m_walkTimer.ticksElapsed(),
-                                           (int)m_walkOffset.x, (int)m_walkOffset.y,
-                                           (int)m_speed, (int)getTile()->getGroundSpeed(), (int)g_game.getWalkId(),
-                                           (int)(g_clock.millis() - m_footLastStep), (int)footDelay, (int)footAnimPhases, (int)m_walkAnimationPhase, (int)stdext::millis()));
-    }
-
     Size nameSize = m_nameCache.getTextSize();
-    Rect textRect = Rect(point.x + m_informationOffset.x - nameSize.width() / 2.0, point.y + m_informationOffset.y - 12, nameSize);
-    Size levelSize = p_levelText.getTextSize();
-    Size boostSize = p_boostText.getTextSize();
-    Rect levelRect = Rect(backgroundRect.x() + 15.5 + 12, backgroundRect.y() + 8, levelSize);
-    Rect boostRect = Rect(backgroundRect.x() + 15.5 + 12 + 17, backgroundRect.y() + 8, boostSize);
+    Rect textRect = Rect(point.x - nameSize.width() / 2.0, point.y-12, nameSize);
     textRect.bind(parentRect);
 
     // distance them
     uint32 offset = 12;
-    if (isLocalPlayer()) {
+    if(isLocalPlayer()) {
         offset *= 2;
     }
 
-    if (textRect.top() == parentRect.top())
+    if(textRect.top() == parentRect.top())
         backgroundRect.moveTop(textRect.top() + offset);
-    if (backgroundRect.bottom() == parentRect.bottom())
+    if(backgroundRect.bottom() == parentRect.bottom())
         textRect.moveTop(backgroundRect.top() - offset);
-
-    HealthBarPtr healthBar = nullptr;
-    HealthBarPtr manaBar = nullptr;
-    if (g_game.getFeature(Otc::GameHealthInfoBackground)) {
-        if (m_outfit.getHealthBar() > 0) {
-            healthBar = g_healthBars.getHealthBar(m_outfit.getHealthBar());
-        }
-        if (m_outfit.getManaBar() > 0) {
-            manaBar = g_healthBars.getManaBar(m_outfit.getManaBar());
-        }
-    }
-
-    if (healthBar) {
-        backgroundRect.setHeight(healthBar->getHeight());
-        backgroundRect.moveTop(backgroundRect.top() + healthBar->getBarOffset().y);
-        backgroundRect.moveLeft(backgroundRect.left() + healthBar->getBarOffset().x);
-    }
 
     // health rect is based on background rect, so no worries
     Rect healthRect = backgroundRect.expanded(-1);
     healthRect.setWidth((m_healthPercent / 100.0) * 25);
 
     // draw
-    if (g_game.getFeature(Otc::GameBlueNpcNameColor) && isNpc() && m_healthPercent == 100 && !useGray)
+    if(g_game.getFeature(Otc::GameBlueNpcNameColor) && isNpc() && m_healthPercent == 100 && !useGray)
         fillColor = Color(0x66, 0xcc, 0xff);
 
-    if (drawFlags & Otc::DrawBars && (!isNpc() || !g_game.getFeature(Otc::GameHideNpcNames))) {
-        if (healthBar) {
-            TexturePtr barTexture = healthBar->getTexture();
-            Rect barRect = Rect(backgroundRect.x() + healthBar->getOffset().x, backgroundRect.y() + healthBar->getOffset().y, barTexture->getSize());
-            g_drawQueue->addTexturedRect(barRect, barTexture, Rect(0, 0, barTexture->getSize()));
-        }
-        g_drawQueue->addFilledRect(backgroundRect, Color::black);
-        g_drawQueue->addFilledRect(healthRect, fillColor);
+    if(drawFlags & Otc::DrawBars && (!isNpc() || !g_game.getFeature(Otc::GameHideNpcNames))) {
+        g_painter->setColor(Color::black);
+        g_painter->drawFilledRect(backgroundRect);
 
-        if (drawFlags & Otc::DrawManaBar) {
-            int8 manaPercent = m_manaPercent;
-            if (isLocalPlayer()) {
-                LocalPlayerPtr player = g_game.getLocalPlayer();
-                if (player) {
-                    double maxMana = player->getMaxMana();
-                    if (maxMana == 0) {
-                        manaPercent = 100;
-                    } else {
-                        manaPercent = (player->getMana() * 100) / maxMana;
-                    }
-                }
-            }
-            if (manaPercent >= 0) {
+        g_painter->setColor(fillColor);
+        g_painter->drawFilledRect(healthRect);
+
+        if(drawFlags & Otc::DrawManaBar && isLocalPlayer()) {
+            LocalPlayerPtr player = g_game.getLocalPlayer();
+            if(player) {
                 backgroundRect.moveTop(backgroundRect.bottom());
-                if (healthBar) {
-                    backgroundRect.moveTop(backgroundRect.top() + healthBar->getBarOffset().y + 1);
-                }
-                if (manaBar) {
-                    if (!healthBar) {
-                        backgroundRect.moveTop(backgroundRect.top() + 1);
-                    }
-                    backgroundRect.setHeight(manaBar->getHeight());
-                    backgroundRect.moveTop(backgroundRect.top() + manaBar->getBarOffset().y);
-                    backgroundRect.moveLeft(backgroundRect.left() + manaBar->getBarOffset().x);
 
-                    TexturePtr barTexture = manaBar->getTexture();
-                    Rect barRect = Rect(backgroundRect.x() + manaBar->getOffset().x, backgroundRect.y() + manaBar->getOffset().y, barTexture->getSize());
-                    g_drawQueue->addTexturedRect(barRect, barTexture, Rect(0, 0, barTexture->getSize()));
-                }
-                g_drawQueue->addFilledRect(backgroundRect, Color::black);
+                g_painter->setColor(Color::black);
+                g_painter->drawFilledRect(backgroundRect);
 
                 Rect manaRect = backgroundRect.expanded(-1);
-                manaRect.setWidth(((float)manaPercent / 100.f) * 25);
-                g_drawQueue->addFilledRect(manaRect, Color::blue);
+                double maxMana = player->getMaxMana();
+                if(maxMana == 0) {
+                    manaRect.setWidth(25);
+                } else {
+                    manaRect.setWidth(player->getMana() / (maxMana * 1.0) * 25);
+                }
+
+                g_painter->setColor(Color::blue);
+                g_painter->drawFilledRect(manaRect);
             }
-        }
-
-        if (getProgressBarPercent()) {
-            backgroundRect.moveTop(backgroundRect.bottom());
-
-            g_drawQueue->addFilledRect(backgroundRect, Color::black);
-
-            Rect progressBarRect = backgroundRect.expanded(-1);
-            double maxBar = 100;
-            progressBarRect.setWidth(getProgressBarPercent() / (maxBar * 1.0) * 25);
-
-            g_drawQueue->addFilledRect(progressBarRect, Color::white);
         }
     }
 
-    if (drawFlags & Otc::DrawNames) {
-        m_nameCache.draw(textRect, fillColor);
-
-        if (!isNpc() && !isPlayer())
-        {
-            if((p_boost != 0) || (atoi(p_b.c_str()) != 0 && p_boost == 0))
-            {
-                boostRect.moveTop(levelRect.bottom());
-                p_boostText.draw(boostRect, Color::white);
-            }
-            
-            if((p_level != 0) || (atoi(p_wl.c_str()) != 0 && p_level == 0))
-            {
-                p_levelText.draw(levelRect, Color::white);
-            }
-        }
-
-        if (m_titleCache.hasText()) {
-            Size titleSize = m_titleCache.getTextSize();
-            Point textCenter = textRect.topCenter();
-            textRect.setSize(titleSize);
-            textRect.moveBottomCenter(textCenter);
-            m_titleCache.draw(textRect, m_titleColor);
-        }
-
-        if (m_text) {
-            auto extraTextSize = m_text->getCachedText().getTextSize();
-            Rect extraTextRect = Rect(point.x + m_informationOffset.x - extraTextSize.width() / 2.0, point.y + m_informationOffset.y + 15, extraTextSize);
-            m_text->drawText(extraTextRect.center(), extraTextRect);
-        }
+    if(drawFlags & Otc::DrawNames) {
+        if(g_painter->getColor() != fillColor)
+            g_painter->setColor(fillColor);
+        m_nameCache.draw(textRect);
     }
 
-    if (!(drawFlags & Otc::DrawIcons))
-        return;
-
-    if (m_skull != Otc::SkullNone && m_skullTexture) {
+    if(m_skull != Otc::SkullNone && m_skullTexture) {
+        g_painter->setColor(Color::white);
         Rect skullRect = Rect(backgroundRect.x() + 13.5 + 12, backgroundRect.y() + 5, m_skullTexture->getSize());
-        g_drawQueue->addTexturedRect(skullRect, m_skullTexture, Rect(0, 0, m_skullTexture->getSize()));
+        g_painter->drawTexturedRect(skullRect, m_skullTexture);
     }
-    if (m_shield != Otc::ShieldNone && m_shieldTexture && m_showShieldTexture) {
+    if(m_shield != Otc::ShieldNone && m_shieldTexture && m_showShieldTexture) {
+        g_painter->setColor(Color::white);
         Rect shieldRect = Rect(backgroundRect.x() + 13.5, backgroundRect.y() + 5, m_shieldTexture->getSize());
-        g_drawQueue->addTexturedRect(shieldRect, m_shieldTexture, Rect(0, 0, m_shieldTexture->getSize()));
+        g_painter->drawTexturedRect(shieldRect, m_shieldTexture);
     }
-    if (m_emblem != Otc::EmblemNone && m_emblemTexture) {
+    if(m_emblem != Otc::EmblemNone && m_emblemTexture) {
+        g_painter->setColor(Color::white);
         Rect emblemRect = Rect(backgroundRect.x() + 13.5 + 12, backgroundRect.y() + 16, m_emblemTexture->getSize());
-        g_drawQueue->addTexturedRect(emblemRect, m_emblemTexture, Rect(0, 0, m_emblemTexture->getSize()));
+        g_painter->drawTexturedRect(emblemRect, m_emblemTexture);
     }
-    if (m_type != Proto::CreatureTypeUnknown && m_typeTexture) {
+    if(m_type != Proto::CreatureTypeUnknown && m_typeTexture) {
+        g_painter->setColor(Color::white);
         Rect typeRect = Rect(backgroundRect.x() + 13.5 + 12 + 12, backgroundRect.y() + 16, m_typeTexture->getSize());
-        g_drawQueue->addTexturedRect(typeRect, m_typeTexture, Rect(0, 0, m_typeTexture->getSize()));
+        g_painter->drawTexturedRect(typeRect, m_typeTexture);
     }
-    if (m_icon != Otc::NpcIconNone && m_iconTexture) {
+    if(m_icon != Otc::NpcIconNone && m_iconTexture) {
+        g_painter->setColor(Color::white);
         Rect iconRect = Rect(backgroundRect.x() + 13.5 + 12, backgroundRect.y() + 5, m_iconTexture->getSize());
-        g_drawQueue->addTexturedRect(iconRect, m_iconTexture, Rect(0, 0, m_iconTexture->getSize()));
+        g_painter->drawTexturedRect(iconRect, m_iconTexture);
     }
-}
-
-bool Creature::isInsideOffset(Point offset)
-{
-    // for worse precision:
-    // Rect rect(getDrawOffset() - (m_walking ? m_walkOffset : Point(0,0)), Size(Otc::TILE_PIXELS - getDisplacementY(), Otc::TILE_PIXELS - getDisplacementX()));
-    Rect rect(getDrawOffset() - getDisplacement(), Size(g_sprites.spriteSize(), g_sprites.spriteSize()));
-    return rect.contains(offset);
-}
-
-bool Creature::canShoot(int distance)
-{
-    return getTile() ? getTile()->canShoot(distance) : false;
 }
 
 void Creature::turn(Otc::Direction direction)
 {
-    setDirection(direction);
-    callLuaField("onTurn", direction);
+    // if is not walking change the direction right away
+    if(!m_walking)
+        setDirection(direction);
+    // schedules to set the new direction when walk ends
+    else
+        m_walkTurnDirection = direction;
 }
 
 void Creature::walk(const Position& oldPos, const Position& newPos)
 {
-    if (oldPos == newPos)
+    if(oldPos == newPos)
         return;
 
     // get walk direction
@@ -390,17 +344,19 @@ void Creature::walk(const Position& oldPos, const Position& newPos)
 
     // set current walking direction
     setDirection(m_lastStepDirection);
-    m_walkDirection = m_direction;
 
     // starts counting walk
     m_walking = true;
     m_walkTimer.restart();
     m_walkedPixels = 0;
 
-    if (m_walkFinishAnimEvent) {
+    if(m_walkFinishAnimEvent) {
         m_walkFinishAnimEvent->cancel();
         m_walkFinishAnimEvent = nullptr;
     }
+
+    // no direction need to be changed when the walk ends
+    m_walkTurnDirection = Otc::InvalidDirection;
 
     // starts updating walk
     nextWalkUpdate();
@@ -408,7 +364,7 @@ void Creature::walk(const Position& oldPos, const Position& newPos)
 
 void Creature::stopWalk()
 {
-    if (!m_walking)
+    if(!m_walking)
         return;
 
     // stops the walk right away
@@ -417,7 +373,7 @@ void Creature::stopWalk()
 
 void Creature::jump(int height, int duration)
 {
-    if (!m_jumpOffset.isNull())
+    if(!m_jumpOffset.isNull())
         return;
 
     m_jumpTimer.restart();
@@ -433,36 +389,37 @@ void Creature::updateJump()
     double a = -4 * m_jumpHeight / (m_jumpDuration * m_jumpDuration);
     double b = +4 * m_jumpHeight / (m_jumpDuration);
 
-    double height = a * t * t + b * t;
+    double height = a*t*t + b*t;
     int roundHeight = stdext::round(height);
     int halfJumpDuration = m_jumpDuration / 2;
 
     // schedules next update
-    if (m_jumpTimer.ticksElapsed() < m_jumpDuration) {
+    if(m_jumpTimer.ticksElapsed() < m_jumpDuration) {
         m_jumpOffset = PointF(height, height);
 
         int diff = 0;
-        if (m_jumpTimer.ticksElapsed() < halfJumpDuration)
+        if(m_jumpTimer.ticksElapsed() < halfJumpDuration)
             diff = 1;
-        else if (m_jumpTimer.ticksElapsed() > halfJumpDuration)
+        else if(m_jumpTimer.ticksElapsed() > halfJumpDuration)
             diff = -1;
 
         int nextT, i = 1;
         do {
-            nextT = stdext::round((-b + std::sqrt(std::max<double>(b * b + 4 * a * (roundHeight + diff * i), 0.0)) * diff) / (2 * a));
+            nextT = stdext::round((-b + std::sqrt(std::max<int>(b*b + 4*a*(roundHeight+diff*i), 0.0)) * diff) / (2*a));
             ++i;
 
-            if (nextT < halfJumpDuration)
+            if(nextT < halfJumpDuration)
                 diff = 1;
-            else if (nextT > halfJumpDuration)
+            else if(nextT > halfJumpDuration)
                 diff = -1;
-        } while (nextT - m_jumpTimer.ticksElapsed() == 0 && i < 3);
+        } while(nextT - m_jumpTimer.ticksElapsed() == 0 && i < 3);
 
         auto self = static_self_cast<Creature>();
         g_dispatcher.scheduleEvent([self] {
             self->updateJump();
         }, nextT - m_jumpTimer.ticksElapsed());
-    } else
+    }
+    else
         m_jumpOffset = PointF(0, 0);
 }
 
@@ -474,23 +431,23 @@ void Creature::onPositionChange(const Position& newPos, const Position& oldPos)
 void Creature::onAppear()
 {
     // cancel any disappear event
-    if (m_disappearEvent) {
+    if(m_disappearEvent) {
         m_disappearEvent->cancel();
         m_disappearEvent = nullptr;
     }
 
     // creature appeared the first time or wasn't seen for a long time
-    if (m_removed) {
+    if(m_removed) {
         stopWalk();
         m_removed = false;
         callLuaField("onAppear");
-        // walk
-    } else if (m_oldPosition != m_position && m_oldPosition.isInRange(m_position, 1, 1) && m_allowAppearWalk) {
+    // walk
+    } else if(m_oldPosition != m_position && m_oldPosition.isInRange(m_position,1,1) && m_allowAppearWalk) {
         m_allowAppearWalk = false;
         walk(m_oldPosition, m_position);
         callLuaField("onWalk", m_oldPosition, m_position);
-        // teleport
-    } else if (m_oldPosition != m_position) {
+    // teleport
+    } else if(m_oldPosition != m_position) {
         stopWalk();
         callLuaField("onDisappear");
         callLuaField("onAppear");
@@ -499,7 +456,7 @@ void Creature::onAppear()
 
 void Creature::onDisappear()
 {
-    if (m_disappearEvent)
+    if(m_disappearEvent)
         m_disappearEvent->cancel();
 
     m_oldPosition = m_position;
@@ -514,11 +471,10 @@ void Creature::onDisappear()
         self->callLuaField("onDisappear");
 
         // invalidate this creature position
-        if (!self->isLocalPlayer())
+        if(!self->isLocalPlayer())
             self->setPosition(Position());
         self->m_oldPosition = Position();
         self->m_disappearEvent = nullptr;
-        self->clearWidgets();
     });
 }
 
@@ -527,98 +483,81 @@ void Creature::onDeath()
     callLuaField("onDeath");
 }
 
-int Creature::getWalkAnimationPhases()
-{
-    if (!getAnimator())
-        return getAnimationPhases();
-    return getAnimator()->getAnimationPhases() + (g_game.getFeature(Otc::GameIdleAnimations) ? 1 : 0);
-}
-
-void Creature::updateWalkAnimation(uint8 totalPixelsWalked)
+void Creature::updateWalkAnimation(int totalPixelsWalked)
 {
     // update outfit animation
-    if (m_outfit.getCategory() != ThingCategoryCreature)
+    if(m_outfit.getCategory() != ThingCategoryCreature)
         return;
 
-    int footAnimPhases = getWalkAnimationPhases() - 1;
-    // TODO, should be /2 for <= 810
-    uint16 footDelay = getStepDuration();
-    if (footAnimPhases > 0) {
-        footDelay = ((getStepDuration() + 20) / (g_game.getFeature(Otc::GameFasterAnimations) ? footAnimPhases * 2 : footAnimPhases));
-    }
-    if (!g_game.getFeature(Otc::GameFasterAnimations))
-        footDelay += 10;
-    if (footDelay < 20)
-        footDelay = 20;
-
+    int footAnimPhases = getAnimationPhases() - 1;
+    int footDelay = getStepDuration(true) / 3;
     // Since mount is a different outfit we need to get the mount animation phases
-    if (m_outfit.getMount() != 0) {
-        ThingType* type = g_things.rawGetThingType(m_outfit.getMount(), m_outfit.getCategory());
-        footAnimPhases = std::min<int>(footAnimPhases, type->getAnimationPhases() - 1);
+    if(m_outfit.getMount() != 0) {
+        ThingType *type = g_things.rawGetThingType(m_outfit.getMount(), m_outfit.getCategory());
+        footAnimPhases = type->getAnimationPhases() - 1;
     }
-
-    if (footAnimPhases == 0) {
+    if(footAnimPhases == 0)
         m_walkAnimationPhase = 0;
-    } else if (g_clock.millis() >= m_footLastStep + footDelay && totalPixelsWalked < g_sprites.spriteSize()) {
+    else if(m_footStepDrawn && m_footTimer.ticksElapsed() >= footDelay && totalPixelsWalked < 32) {
         m_footStep++;
         m_walkAnimationPhase = 1 + (m_footStep % footAnimPhases);
-        m_footLastStep = (g_clock.millis() - m_footLastStep) > footDelay * 1.5 ? g_clock.millis() : m_footLastStep + footDelay;
-    } else if (m_walkAnimationPhase == 0 && totalPixelsWalked < g_sprites.spriteSize()) {
+        m_footStepDrawn = false;
+        m_footTimer.restart();
+    } else if(m_walkAnimationPhase == 0 && totalPixelsWalked < 32) {
         m_walkAnimationPhase = 1 + (m_footStep % footAnimPhases);
     }
 
-    if (totalPixelsWalked == g_sprites.spriteSize() && !m_walkFinishAnimEvent) {
+    if(totalPixelsWalked == 32 && !m_walkFinishAnimEvent) {
         auto self = static_self_cast<Creature>();
         m_walkFinishAnimEvent = g_dispatcher.scheduleEvent([self] {
-            self->m_footStep = 0;
-            self->m_walkAnimationPhase = 0;
+            if(!self->m_walking || self->m_walkTimer.ticksElapsed() >= self->getStepDuration(true))
+                self->m_walkAnimationPhase = 0;
             self->m_walkFinishAnimEvent = nullptr;
-        }, 50);
+        }, std::min<int>(footDelay, 200));
     }
 
 }
 
-void Creature::updateWalkOffset(uint8 totalPixelsWalked, bool inNextFrame)
+void Creature::updateWalkOffset(int totalPixelsWalked)
 {
-    Point& walkOffset = inNextFrame ? m_walkOffsetInNextFrame : m_walkOffset;
-    walkOffset = Point(0, 0);
-    if (m_walkDirection == Otc::North || m_walkDirection == Otc::NorthEast || m_walkDirection == Otc::NorthWest)
-        walkOffset.y = g_sprites.spriteSize() - totalPixelsWalked;
-    else if (m_walkDirection == Otc::South || m_walkDirection == Otc::SouthEast || m_walkDirection == Otc::SouthWest)
-        walkOffset.y = totalPixelsWalked - g_sprites.spriteSize();
+    m_walkOffset = Point(0,0);
+    if(m_direction == Otc::North || m_direction == Otc::NorthEast || m_direction == Otc::NorthWest)
+        m_walkOffset.y = 32 - totalPixelsWalked;
+    else if(m_direction == Otc::South || m_direction == Otc::SouthEast || m_direction == Otc::SouthWest)
+        m_walkOffset.y = totalPixelsWalked - 32;
 
-    if (m_walkDirection == Otc::East || m_walkDirection == Otc::NorthEast || m_walkDirection == Otc::SouthEast)
-        walkOffset.x = totalPixelsWalked - g_sprites.spriteSize();
-    else if (m_walkDirection == Otc::West || m_walkDirection == Otc::NorthWest || m_walkDirection == Otc::SouthWest)
-        walkOffset.x = g_sprites.spriteSize() - totalPixelsWalked;
+    if(m_direction == Otc::East || m_direction == Otc::NorthEast || m_direction == Otc::SouthEast)
+        m_walkOffset.x = totalPixelsWalked - 32;
+    else if(m_direction == Otc::West || m_direction == Otc::NorthWest || m_direction == Otc::SouthWest)
+        m_walkOffset.x = 32 - totalPixelsWalked;
 }
 
 void Creature::updateWalkingTile()
 {
     // determine new walking tile
     TilePtr newWalkingTile;
-    Rect virtualCreatureRect(g_sprites.spriteSize() + (m_walkOffset.x - getDisplacementX()),
-        g_sprites.spriteSize() + (m_walkOffset.y - getDisplacementY()),
-        g_sprites.spriteSize(), g_sprites.spriteSize());
-    for (int xi = -1; xi <= 1 && !newWalkingTile; ++xi) {
-        for (int yi = -1; yi <= 1 && !newWalkingTile; ++yi) {
-            Rect virtualTileRect((xi + 1) * g_sprites.spriteSize(), (yi + 1) * g_sprites.spriteSize(), g_sprites.spriteSize(), g_sprites.spriteSize());
+    Rect virtualCreatureRect(Otc::TILE_PIXELS + (m_walkOffset.x - getDisplacementX()),
+                             Otc::TILE_PIXELS + (m_walkOffset.y - getDisplacementY()),
+                             Otc::TILE_PIXELS, Otc::TILE_PIXELS);
+    for(int xi = -1; xi <= 1 && !newWalkingTile; ++xi) {
+        for(int yi = -1; yi <= 1 && !newWalkingTile; ++yi) {
+            Rect virtualTileRect((xi+1)*Otc::TILE_PIXELS, (yi+1)*Otc::TILE_PIXELS, Otc::TILE_PIXELS, Otc::TILE_PIXELS);
 
             // only render creatures where bottom right is inside tile rect
-            if (virtualTileRect.contains(virtualCreatureRect.bottomRight())) {
-                newWalkingTile = g_map.getOrCreateTile(getPrewalkingPosition().translated(xi, yi, 0));
+            if(virtualTileRect.contains(virtualCreatureRect.bottomRight())) {
+                newWalkingTile = g_map.getOrCreateTile(m_position.translated(xi, yi, 0));
             }
         }
     }
 
-    if (newWalkingTile != m_walkingTile) {
-        if (m_walkingTile)
+    if(newWalkingTile != m_walkingTile) {
+        if(m_walkingTile)
             m_walkingTile->removeWalkingCreature(static_self_cast<Creature>());
-        if (newWalkingTile) {
+        if(newWalkingTile) {
             newWalkingTile->addWalkingCreature(static_self_cast<Creature>());
 
             // recache visible tiles in map views
-            if (newWalkingTile->isEmpty())
+            if(newWalkingTile->isEmpty())
                 g_map.notificateTileUpdate(newWalkingTile->getPosition());
         }
         m_walkingTile = newWalkingTile;
@@ -628,74 +567,65 @@ void Creature::updateWalkingTile()
 void Creature::nextWalkUpdate()
 {
     // remove any previous scheduled walk updates
-    if (m_walkUpdateEvent)
+    if(m_walkUpdateEvent)
         m_walkUpdateEvent->cancel();
 
     // do the update
     updateWalk();
 
     // schedules next update
-    if (!m_walking) {
-        return;
+    if(m_walking) {
+        auto self = static_self_cast<Creature>();
+        m_walkUpdateEvent = g_dispatcher.scheduleEvent([self] {
+            self->m_walkUpdateEvent = nullptr;
+            self->nextWalkUpdate();
+        }, getStepDuration() / 32);
     }
-	
-	auto self = static_self_cast<Creature>();
-    m_walkUpdateEvent = g_dispatcher.scheduleEvent([self]{
-        self->m_walkUpdateEvent = nullptr;
-        self->nextWalkUpdate();
-    }, g_game.getFeature(Otc::GameNewUpdateWalk) ? 
-        std::max(getStepDuration() / std::max(g_app.getFps(), 1), 1) : (float)getStepDuration() / g_sprites.spriteSize()
-    );
 }
 
 void Creature::updateWalk()
 {
-    float walkTicksPerPixel = ((float)(getStepDuration() + (g_game.getFeature(Otc::GameNewUpdateWalk) ? 0 : 10))) / (float)g_sprites.spriteSize();
-    uint8 totalPixelsWalked = std::min<uint8>(m_walkTimer.ticksElapsed() / walkTicksPerPixel, g_sprites.spriteSize());
-    uint8 totalPixelsWalkedInNextFrame = std::min<uint8>((m_walkTimer.ticksElapsed() + (g_game.getFeature(Otc::GameNewUpdateWalk) ? std::max(1000.f / g_app.getFps(), 1.0f) : 15)) / walkTicksPerPixel, g_sprites.spriteSize());
+    float walkTicksPerPixel = getStepDuration(true) / 32;
+    int totalPixelsWalked = std::min<int>(m_walkTimer.ticksElapsed() / walkTicksPerPixel, 32.0f);
 
     // needed for paralyze effect
-    m_walkedPixels = std::max<uint8>(m_walkedPixels, totalPixelsWalked);
-    uint8 walkedPixelsInNextFrame = std::max<uint8>(m_walkedPixels, totalPixelsWalkedInNextFrame);
+    m_walkedPixels = std::max<int>(m_walkedPixels, totalPixelsWalked);
 
     // update walk animation and offsets
     updateWalkAnimation(totalPixelsWalked);
     updateWalkOffset(m_walkedPixels);
-    updateWalkOffset(walkedPixelsInNextFrame, true);
     updateWalkingTile();
 
     // terminate walk
-    if (!isLocalPlayer() && m_walking && m_walkTimer.ticksElapsed() >= getStepDuration())
+    if(m_walking && m_walkTimer.ticksElapsed() >= getStepDuration())
         terminateWalk();
 }
 
 void Creature::terminateWalk()
 {
     // remove any scheduled walk update
-    if (m_walkUpdateEvent) {
+    if(m_walkUpdateEvent) {
         m_walkUpdateEvent->cancel();
         m_walkUpdateEvent = nullptr;
     }
 
-    if (m_walkingTile) {
+    // now the walk has ended, do any scheduled turn
+    if(m_walkTurnDirection != Otc::InvalidDirection)  {
+        setDirection(m_walkTurnDirection);
+        m_walkTurnDirection = Otc::InvalidDirection;
+    }
+
+    if(m_walkingTile) {
         m_walkingTile->removeWalkingCreature(static_self_cast<Creature>());
         m_walkingTile = nullptr;
     }
 
     m_walking = false;
     m_walkedPixels = 0;
-    m_walkOffset = Point(0, 0);
-    m_walkOffsetInNextFrame = Point(0, 0);
 
     // reset walk animation states
-    if (!m_walkFinishAnimEvent) {
-        auto self = static_self_cast<Creature>();
-        m_walkFinishAnimEvent = g_dispatcher.scheduleEvent([self] {
-            self->m_footStep = 0;
-            self->m_walkAnimationPhase = 0;
-            self->m_walkFinishAnimEvent = nullptr;
-        }, 50);
-    }
+    m_walkOffset = Point(0,0);
+    m_walkAnimationPhase = 0;
 }
 
 void Creature::setName(const std::string& name)
@@ -706,52 +636,42 @@ void Creature::setName(const std::string& name)
 
 void Creature::setHealthPercent(uint8 healthPercent)
 {
-    if (healthPercent > 100)
-        healthPercent = 100;
+    if(healthPercent > 92)
+        m_informationColor = Color(0x00, 0xBC, 0x00);
+    else if(healthPercent > 60)
+        m_informationColor = Color(0x50, 0xA1, 0x50);
+    else if(healthPercent > 30)
+        m_informationColor = Color(0xA1, 0xA1, 0x00);
+    else if(healthPercent > 8)
+        m_informationColor = Color(0xBF, 0x0A, 0x0A);
+    else if(healthPercent > 3)
+        m_informationColor = Color(0x91, 0x0F, 0x0F);
+    else
+        m_informationColor = Color(0x85, 0x0C, 0x0C);
 
-    if (!m_useCustomInformationColor) {
-        if (healthPercent > 92)
-            m_informationColor = Color(0x00, 0xBC, 0x00);
-        else if (healthPercent > 60)
-            m_informationColor = Color(0x50, 0xA1, 0x50);
-        else if (healthPercent > 30)
-            m_informationColor = Color(0xA1, 0xA1, 0x00);
-        else if (healthPercent > 8)
-            m_informationColor = Color(0xBF, 0x0A, 0x0A);
-        else if (healthPercent > 3)
-            m_informationColor = Color(0x91, 0x0F, 0x0F);
-        else
-            m_informationColor = Color(0x2C, 0x0F, 0x0F);
-    }
-
-    bool changed = m_healthPercent != healthPercent;
     m_healthPercent = healthPercent;
-    if (changed) {
-        callLuaField("onHealthPercentChange", healthPercent);
-    }
+    callLuaField("onHealthPercentChange", healthPercent);
 
-    if (healthPercent <= 0)
+    if(healthPercent <= 0)
         onDeath();
 }
 
 void Creature::setDirection(Otc::Direction direction)
 {
-    VALIDATE(direction != Otc::InvalidDirection);
+    assert(direction != Otc::InvalidDirection);
     m_direction = direction;
 }
 
 void Creature::setOutfit(const Outfit& outfit)
 {
     Outfit oldOutfit = m_outfit;
-    if (outfit.getCategory() != ThingCategoryCreature) {
-        if (!g_things.isValidDatId(outfit.getAuxId(), outfit.getCategory()))
+    if(outfit.getCategory() != ThingCategoryCreature) {
+        if(!g_things.isValidDatId(outfit.getAuxId(), outfit.getCategory()))
             return;
         m_outfit.setAuxId(outfit.getAuxId());
         m_outfit.setCategory(outfit.getCategory());
-        m_outfit.setWings(0);
-        m_outfit.setAura(0);
     } else {
-        if (outfit.getId() > 0 && !g_things.isValidDatId(outfit.getId(), ThingCategoryCreature))
+        if(outfit.getId() > 0 && !g_things.isValidDatId(outfit.getId(), ThingCategoryCreature))
             return;
         m_outfit = outfit;
     }
@@ -762,29 +682,31 @@ void Creature::setOutfit(const Outfit& outfit)
 
 void Creature::setOutfitColor(const Color& color, int duration)
 {
-    if (m_outfitColorUpdateEvent) {
+    if(m_outfitColorUpdateEvent) {
         m_outfitColorUpdateEvent->cancel();
         m_outfitColorUpdateEvent = nullptr;
     }
 
-    if (duration > 0) {
+    if(duration > 0) {
         Color delta = (color - m_outfitColor) / (float)duration;
         m_outfitColorTimer.restart();
         updateOutfitColor(m_outfitColor, color, delta, duration);
-    } else
+    }
+    else
         m_outfitColor = color;
 }
 
 void Creature::updateOutfitColor(Color color, Color finalColor, Color delta, int duration)
 {
-    if (m_outfitColorTimer.ticksElapsed() < duration) {
+    if(m_outfitColorTimer.ticksElapsed() < duration) {
         m_outfitColor = color + delta * m_outfitColorTimer.ticksElapsed();
 
         auto self = static_self_cast<Creature>();
         m_outfitColorUpdateEvent = g_dispatcher.scheduleEvent([=] {
             self->updateOutfitColor(color, finalColor, delta, duration);
         }, 100);
-    } else {
+    }
+    else {
         m_outfitColor = finalColor;
     }
 }
@@ -795,7 +717,7 @@ void Creature::setSpeed(uint16 speed)
     m_speed = speed;
 
     // speed can change while walking (utani hur, paralyze, etc..)
-    if (m_walking)
+    if(m_walking)
         nextWalkUpdate();
 
     callLuaField("onSpeedChange", m_speed, oldSpeed);
@@ -803,7 +725,7 @@ void Creature::setSpeed(uint16 speed)
 
 void Creature::setBaseSpeed(double baseSpeed)
 {
-    if (m_baseSpeed != baseSpeed) {
+    if(m_baseSpeed != baseSpeed) {
         double oldBaseSpeed = m_baseSpeed;
         m_baseSpeed = baseSpeed;
 
@@ -851,7 +773,7 @@ void Creature::setShieldTexture(const std::string& filename, bool blink)
     m_shieldTexture = g_textures.getTexture(filename);
     m_showShieldTexture = true;
 
-    if (blink && !m_shieldBlink) {
+    if(blink && !m_shieldBlink) {
         auto self = static_self_cast<Creature>();
         g_dispatcher.scheduleEvent([self]() {
             self->updateShield();
@@ -886,7 +808,7 @@ void Creature::setSpeedFormula(double speedA, double speedB, double speedC)
 bool Creature::hasSpeedFormula()
 {
     return m_speedFormula[Otc::SpeedFormulaA] != -1 && m_speedFormula[Otc::SpeedFormulaB] != -1
-        && m_speedFormula[Otc::SpeedFormulaC] != -1;
+            && m_speedFormula[Otc::SpeedFormulaC] != -1;
 }
 
 void Creature::addTimedSquare(uint8 color)
@@ -901,141 +823,129 @@ void Creature::addTimedSquare(uint8 color)
     }, VOLATILE_SQUARE_DURATION);
 }
 
-
 void Creature::updateShield()
 {
     m_showShieldTexture = !m_showShieldTexture;
 
-    if (m_shield != Otc::ShieldNone && m_shieldBlink) {
+    if(m_shield != Otc::ShieldNone && m_shieldBlink) {
         auto self = static_self_cast<Creature>();
         g_dispatcher.scheduleEvent([self]() {
             self->updateShield();
         }, SHIELD_BLINK_TICKS);
-    } else if (!m_shieldBlink)
+    }
+    else if(!m_shieldBlink)
         m_showShieldTexture = true;
 }
 
 Point Creature::getDrawOffset()
 {
     Point drawOffset;
-    if (m_walking) {
-        if (m_walkingTile)
-            drawOffset -= Point(1, 1) * m_walkingTile->getDrawElevation() * g_sprites.getOffsetFactor();
+    if(m_walking) {
+        if(m_walkingTile)
+            drawOffset -= Point(1,1) * m_walkingTile->getDrawElevation();
         drawOffset += m_walkOffset;
     } else {
         const TilePtr& tile = getTile();
-        if (tile)
-            drawOffset -= Point(1, 1) * tile->getDrawElevation() * g_sprites.getOffsetFactor();
+        if(tile)
+            drawOffset -= Point(1,1) * tile->getDrawElevation();
     }
     return drawOffset;
 }
 
-uint16 Creature::getStepDuration(bool ignoreDiagonal, Otc::Direction dir)
+int Creature::getStepDuration(bool ignoreDiagonal, Otc::Direction dir)
 {
-    uint16 speed = m_speed;
-    if (speed < 1)
+    int speed = m_speed;
+    if(speed < 1)
         return 0;
 
-    if (g_game.getFeature(Otc::GameNewSpeedLaw))
+    if(g_game.getFeature(Otc::GameNewSpeedLaw))
         speed *= 2;
 
-    uint16 groundSpeed = 0;
+    int groundSpeed = 0;
     Position tilePos;
 
-    if (dir == Otc::InvalidDirection)
+    if(dir == Otc::InvalidDirection)
         tilePos = m_lastStepToPosition;
     else
-        tilePos = getPrewalkingPosition(true).translatedToDirection(dir);
+        tilePos = m_position.translatedToDirection(dir);
 
-    if (!tilePos.isValid())
-        tilePos = getPrewalkingPosition(true);
-
+    if(!tilePos.isValid())
+        tilePos = m_position;
     const TilePtr& tile = g_map.getTile(tilePos);
-    if (tile) {
+    if(tile) {
         groundSpeed = tile->getGroundSpeed();
-        if (groundSpeed == 0)
+        if(groundSpeed == 0)
             groundSpeed = 150;
     }
 
     int interval = 1000;
-    if (groundSpeed > 0 && speed > 0)
+    if(groundSpeed > 0 && speed > 0)
         interval = 1000 * groundSpeed;
 
-    if (g_game.getFeature(Otc::GameNewSpeedLaw) && hasSpeedFormula()) {
+    if(g_game.getFeature(Otc::GameNewSpeedLaw) && hasSpeedFormula()) {
         int formulatedSpeed = 1;
-        if (speed > -m_speedFormula[Otc::SpeedFormulaB]) {
+        if(speed > -m_speedFormula[Otc::SpeedFormulaB]) {
             formulatedSpeed = std::max<int>(1, (int)floor((m_speedFormula[Otc::SpeedFormulaA] * log((speed / 2)
-                                                                                                    + m_speedFormula[Otc::SpeedFormulaB]) + m_speedFormula[Otc::SpeedFormulaC]) + 0.5));
+                 + m_speedFormula[Otc::SpeedFormulaB]) + m_speedFormula[Otc::SpeedFormulaC]) + 0.5));
         }
         interval = std::floor(interval / (double)formulatedSpeed);
-    } else
+    }
+    else
         interval /= speed;
 
-    if (g_game.getClientVersion() >= 900 && !g_game.getFeature(Otc::GameNewWalking))
-        interval = std::ceil((float)interval / (float)g_game.getServerBeat()) * g_game.getServerBeat();
+    if(g_game.getClientVersion() >= 900)
+        interval = (interval / g_game.getServerBeat()) * g_game.getServerBeat();
+
+    float factor = 3;
+    if(g_game.getClientVersion() <= 810)
+        factor = 2;
 
     interval = std::max<int>(interval, g_game.getServerBeat());
 
-    if (!ignoreDiagonal && (m_lastStepDirection == Otc::NorthWest || m_lastStepDirection == Otc::NorthEast ||
-                            m_lastStepDirection == Otc::SouthWest || m_lastStepDirection == Otc::SouthEast))
-        interval *= 1.8;
-
-    if (!isServerWalking() && g_game.getFeature(Otc::GameSlowerManualWalking)) {
-        interval += 25;
-    }
-    if (isServerWalking() && g_game.getFeature(Otc::GameNewWalking) && m_stepDuration > 0) // just use server value
-    {
-        interval = m_stepDuration;
-    }
+    if(!ignoreDiagonal && (m_lastStepDirection == Otc::NorthWest || m_lastStepDirection == Otc::NorthEast ||
+       m_lastStepDirection == Otc::SouthWest || m_lastStepDirection == Otc::SouthEast))
+        interval *= factor;
 
     return interval;
 }
 
 Point Creature::getDisplacement()
 {
-    if (m_outfit.getCategory() == ThingCategoryEffect)
-        return Point(8, 8) * g_sprites.getOffsetFactor();
-    else if (m_outfit.getCategory() == ThingCategoryItem)
+    if(m_outfit.getCategory() == ThingCategoryEffect)
+        return Point(8, 8);
+    else if(m_outfit.getCategory() == ThingCategoryItem)
         return Point(0, 0);
-
-    if (m_outfit.getMount() != 0) {
-        auto datType = g_things.rawGetThingType(m_outfit.getMount(), ThingCategoryCreature);
-        return datType->getDisplacement() * g_sprites.getOffsetFactor();
-    }
-
-    return Thing::getDisplacement() * g_sprites.getOffsetFactor();
+    return Thing::getDisplacement();
 }
 
 int Creature::getDisplacementX()
 {
-    if (m_outfit.getCategory() == ThingCategoryEffect)
-        return 8 * g_sprites.getOffsetFactor();
-    else if (m_outfit.getCategory() == ThingCategoryItem)
+    if(m_outfit.getCategory() == ThingCategoryEffect)
+        return 8;
+    else if(m_outfit.getCategory() == ThingCategoryItem)
         return 0;
 
-    if (m_outfit.getMount() != 0) {
+    if(m_outfit.getMount() != 0) {
         auto datType = g_things.rawGetThingType(m_outfit.getMount(), ThingCategoryCreature);
-        return datType->getDisplacementX() * g_sprites.getOffsetFactor();
+        return datType->getDisplacementX();
     }
 
-    return Thing::getDisplacementX() * g_sprites.getOffsetFactor();
+    return Thing::getDisplacementX();
 }
 
 int Creature::getDisplacementY()
 {
-    if (m_outfit.getCategory() == ThingCategoryEffect)
-        return 8 * g_sprites.getOffsetFactor();
-    else if (m_outfit.getCategory() == ThingCategoryItem)
+    if(m_outfit.getCategory() == ThingCategoryEffect)
+        return 8;
+    else if(m_outfit.getCategory() == ThingCategoryItem)
         return 0;
 
-    if (m_outfit.getMount() != 0) {
+    if(m_outfit.getMount() != 0) {
         auto datType = g_things.rawGetThingType(m_outfit.getMount(), ThingCategoryCreature);
-        if (datType) {
-            return datType->getDisplacementY() * g_sprites.getOffsetFactor();
-        }
+        return datType->getDisplacementY();
     }
 
-    return Thing::getDisplacementY() * g_sprites.getOffsetFactor();
+    return Thing::getDisplacementY();
 }
 
 int Creature::getExactSize(int layer, int xPattern, int yPattern, int zPattern, int animationPhase)
@@ -1046,14 +956,14 @@ int Creature::getExactSize(int layer, int xPattern, int yPattern, int zPattern, 
     xPattern = Otc::South;
 
     zPattern = 0;
-    if (m_outfit.getMount() != 0)
+    if(m_outfit.getMount() != 0)
         zPattern = 1;
 
-    for (yPattern = 0; yPattern < getNumPatternY(); yPattern++) {
-        if (yPattern > 0 && !(m_outfit.getAddons() & (1 << (yPattern - 1))))
+    for(yPattern = 0; yPattern < getNumPatternY(); yPattern++) {
+        if(yPattern > 0 && !(m_outfit.getAddons() & (1 << (yPattern-1))))
             continue;
 
-        for (layer = 0; layer < getLayers(); ++layer)
+        for(layer = 0; layer < getLayers(); ++layer)
             exactSize = std::max<int>(exactSize, Thing::getExactSize(layer, xPattern, yPattern, zPattern, animationPhase));
     }
 
@@ -1068,201 +978,4 @@ const ThingTypePtr& Creature::getThingType()
 ThingType* Creature::rawGetThingType()
 {
     return g_things.rawGetThingType(m_outfit.getId(), ThingCategoryCreature);
-}
-
-void Creature::setText(const std::string& text, const Color& color)
-{
-    if (!m_text) {
-        m_text = StaticTextPtr(new StaticText());
-    }
-    m_text->setText(text);
-    m_text->setColor(color);
-}
-
-std::string Creature::getText()
-{
-    if (!m_text) {
-        return "";
-    }
-    return m_text->getText();
-}
-
-
-// widgets
-void Creature::addTopWidget(const UIWidgetPtr& widget)
-{
-    if (!widget) return;
-    if (std::find(m_topWidgets.begin(), m_topWidgets.end(), widget) == m_topWidgets.end()) {
-        m_topWidgets.push_back(widget);
-    }
-}
-
-void Creature::addBottomWidget(const UIWidgetPtr& widget)
-{
-    if (!widget) return;
-    if (std::find(m_bottomWidgets.begin(), m_bottomWidgets.end(), widget) == m_bottomWidgets.end()) {
-        m_bottomWidgets.push_back(widget);
-    }
-}
-
-void Creature::addDirectionalWidget(const UIWidgetPtr& widget)
-{
-    if (!widget) return;
-    if (std::find(m_directionalWidgets.begin(), m_directionalWidgets.end(), widget) == m_directionalWidgets.end()) {
-        m_directionalWidgets.push_back(widget);
-    }
-}
-
-void Creature::removeTopWidget(const UIWidgetPtr& widget)
-{
-    auto it = std::remove(m_topWidgets.begin(), m_topWidgets.end(), widget);
-    while(it != m_topWidgets.end()) {
-        (*it)->destroy();
-        it = m_topWidgets.erase(it);
-    }
-}
-
-void Creature::removeBottomWidget(const UIWidgetPtr& widget)
-{
-    auto it = std::remove(m_bottomWidgets.begin(), m_bottomWidgets.end(), widget);
-    while (it != m_topWidgets.end()) {
-        (*it)->destroy();
-        it = m_bottomWidgets.erase(it);
-    }
-}
-
-void Creature::removeDirectionalWidget(const UIWidgetPtr& widget)
-{    
-    auto it = m_directionalWidgets.erase(std::remove(m_directionalWidgets.begin(), m_directionalWidgets.end(), widget));
-    while (it != m_topWidgets.end()) {
-        (*it)->destroy();
-        it = m_directionalWidgets.erase(it);
-    }
-
-}
-
-std::list<UIWidgetPtr> Creature::getTopWidgets()
-{
-    return m_topWidgets;
-}
-
-std::list<UIWidgetPtr> Creature::getBottomWidgets()
-{
-    return m_bottomWidgets;
-}
-
-std::list<UIWidgetPtr> Creature::getDirectionalWdigets()
-{
-    return m_directionalWidgets;
-}
-
-void Creature::clearWidgets()
-{
-    clearTopWidgets();
-    clearBottomWidgets();
-    clearDirectionalWidgets();
-}
-
-void Creature::clearTopWidgets()
-{
-    for (auto& widget : m_topWidgets) {
-        widget->destroy();
-    }
-    m_topWidgets.clear();
-}
-
-void Creature::clearBottomWidgets()
-{
-    for (auto& widget : m_bottomWidgets) {
-        widget->destroy();
-    }
-    m_bottomWidgets.clear();
-}
-
-void Creature::clearDirectionalWidgets()
-{
-    for (auto& widget : m_directionalWidgets) {
-        widget->destroy();
-    }
-    m_directionalWidgets.clear();
-}
-
-void Creature::drawTopWidgets(const Point& dest, const Otc::Direction direction)
-{
-    if (direction == Otc::North || direction == Otc::West) {
-        for (auto& widget : m_directionalWidgets) {
-            Rect dest_rect = widget->getRect();
-            dest_rect = Rect(dest - Point(dest_rect.width() / 2, dest_rect.height() / 2), dest_rect.width(), dest_rect.height());
-            widget->setRect(dest_rect);
-            widget->draw(dest_rect, Fw::ForegroundPane);
-        }
-    }
-    for (auto& widget : m_topWidgets) {
-        Rect dest_rect = widget->getRect();
-        dest_rect = Rect(dest - Point(dest_rect.width() / 2, dest_rect.height() / 2), dest_rect.width(), dest_rect.height());
-        widget->setRect(dest_rect);
-        widget->draw(dest_rect, Fw::ForegroundPane);
-    }
-}
-
-void Creature::drawBottomWidgets(const Point& dest, const Otc::Direction direction)
-{
-    for (auto& widget : m_bottomWidgets) {
-        Rect dest_rect = widget->getRect();
-        dest_rect = Rect(dest - Point(dest_rect.width() / 2, dest_rect.height() / 2), dest_rect.width(), dest_rect.height());
-        widget->setRect(dest_rect);
-        widget->draw(dest_rect, Fw::ForegroundPane);
-    }
-
-    if (direction == Otc::South || direction == Otc::East) {
-        for (auto& widget : m_directionalWidgets) {
-            Rect dest_rect = widget->getRect();
-            dest_rect = Rect(dest - Point(dest_rect.width() / 2, dest_rect.height() / 2), dest_rect.width(), dest_rect.height());
-            widget->setRect(dest_rect);
-            widget->draw(dest_rect, Fw::ForegroundPane);
-        }
-    }
-}
-
-void Creature::setProgressBar(uint32 duration, bool ltr)
-{
-    if (m_progressBarUpdateEvent) {
-        m_progressBarUpdateEvent->cancel();
-        m_progressBarUpdateEvent = nullptr;
-    }
-
-    if (duration > 0) {
-        m_progressBarTimer.restart();
-        updateProgressBar(duration, ltr);
-    } else
-        m_progressBarPercent = 0;
-
-    callLuaField("onProgressBarStart", duration, ltr);
-}
-
-void Creature::updateProgressBar(uint32 duration, bool ltr)
-{
-    if (m_progressBarTimer.ticksElapsed() < duration) {
-        if (ltr)
-            m_progressBarPercent = abs(m_progressBarTimer.ticksElapsed() / static_cast<double>(duration) * 100);
-        else
-            m_progressBarPercent = abs((m_progressBarTimer.ticksElapsed() / static_cast<double>(duration) * 100) - 100);
-
-        auto self = static_self_cast<Creature>();
-        m_progressBarUpdateEvent = g_dispatcher.scheduleEvent([=] {
-            self->updateProgressBar(duration, ltr);
-        }, 50);
-    } else {
-        m_progressBarPercent = 0;
-    }
-    callLuaField("onProgressBarUpdate", m_progressBarPercent, duration, ltr);
-}
-
-void Creature::setTitle(const std::string& title, const std::string& font, const Color& color)
-{
-    m_titleCache.setText(title);
-    if (!font.empty()) {
-        m_titleCache.setFont(g_fonts.getFont(font));
-    }
-    m_titleColor = color;
 }

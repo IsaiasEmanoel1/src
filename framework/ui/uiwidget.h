@@ -51,19 +51,16 @@ public:
     UIWidget();
     virtual ~UIWidget();
 
-    virtual void draw(const Rect& visibleRect, Fw::DrawPane drawPane);
-
 protected:
+    virtual void draw(const Rect& visibleRect, Fw::DrawPane drawPane);
     virtual void drawSelf(Fw::DrawPane drawPane);
     virtual void drawChildren(const Rect& visibleRect, Fw::DrawPane drawPane);
 
     friend class UIManager;
 
     std::string m_id;
-    std::string m_source;
     Rect m_rect;
     Point m_virtualOffset;
-    stdext::boolean<true> m_autoDraw;
     stdext::boolean<true> m_enabled;
     stdext::boolean<true> m_visible;
     stdext::boolean<true> m_focusable;
@@ -74,10 +71,8 @@ protected:
     stdext::boolean<false> m_clipping;
     UILayoutPtr m_layout;
     UIWidgetPtr m_parent;
-    std::string m_parentId;
     UIWidgetList m_children;
     UIWidgetList m_lockedChildren;
-    std::map<UIWidgetPtr, std::string> m_childrenShortcuts;
     UIWidgetPtr m_focusedChild;
     OTMLNodePtr m_style;
     Timer m_clickTimer;
@@ -86,7 +81,6 @@ protected:
 
 public:
     void addChild(const UIWidgetPtr& child);
-    void onChildIdChange(const UIWidgetPtr& child);
     void insertChild(int index, const UIWidgetPtr& child);
     void removeChild(UIWidgetPtr child);
     void focusChild(const UIWidgetPtr& child, Fw::FocusReason reason);
@@ -95,7 +89,6 @@ public:
     void lowerChild(UIWidgetPtr child);
     void raiseChild(UIWidgetPtr child);
     void moveChildToIndex(const UIWidgetPtr& child, int index);
-    void reorderChildren(const std::vector<UIWidgetPtr>& childrens);
     void lockChild(const UIWidgetPtr& child);
     void unlockChild(const UIWidgetPtr& child);
     void mergeStyle(const OTMLNodePtr& styleNode);
@@ -129,7 +122,6 @@ public:
     void setStyleFromNode(const OTMLNodePtr& styleNode);
     void setEnabled(bool enabled);
     void setVisible(bool visible);
-    void setAutoDraw(bool value);
     void setOn(bool on);
     void setChecked(bool checked);
     void setFocusable(bool focusable);
@@ -247,7 +239,6 @@ public:
     bool isHidden() { return hasState(Fw::HiddenState); }
     bool isExplicitlyEnabled() { return m_enabled; }
     bool isExplicitlyVisible() { return m_visible; }
-    bool isAutoDraw() { return m_autoDraw; }
     bool isFocusable() { return m_focusable; }
     bool isPhantom() { return m_phantom; }
     bool isDraggable() { return m_draggable; }
@@ -261,9 +252,7 @@ public:
     bool containsPoint(const Point& point) { return m_rect.contains(point); }
 
     std::string getId() { return m_id; }
-    std::string getSource() { return m_source; }
     UIWidgetPtr getParent() { return m_parent; }
-    std::string getParentId() { return m_parentId; }
     UIWidgetPtr getFocusedChild() { return m_focusedChild; }
     UIWidgetList getChildren() { return m_children; }
     UIWidgetPtr getFirstChild() { return getChildByIndex(1); }
@@ -277,17 +266,6 @@ public:
     Point getVirtualOffset() { return m_virtualOffset; }
     std::string getStyleName() { return m_style->tag(); }
     Point getLastClickPosition() { return m_lastClickPosition; }
-
-    // for stats only
-    bool isRootChild()
-    {
-        return m_isRootChild;
-    }
-
-    void setRootChild(bool v)
-    {
-        m_isRootChild = v;
-    }
 
 
 // base style
@@ -307,7 +285,6 @@ protected:
     Color m_iconColor;
     Rect m_iconRect;
     Rect m_iconClipRect;
-    std::string m_iconPath;
     Fw::AlignmentFlag m_iconAlign;
     EdgeGroup<Color> m_borderColor;
     EdgeGroup<int> m_borderWidth;
@@ -317,7 +294,6 @@ protected:
     float m_rotation;
     int m_autoRepeatDelay;
     Point m_lastClickPosition;
-    bool m_isRootChild = false; // for stats
 
 public:
     void setX(int x) { move(x, getY()); }
@@ -372,8 +348,6 @@ public:
     void setPaddingLeft(int padding) { m_padding.left = padding; updateLayout(); }
     void setOpacity(float opacity) { m_opacity = stdext::clamp<float>(opacity, 0.0f, 1.0f); }
     void setRotation(float degrees) { m_rotation = degrees; }
-    void setChangeCursorImage(bool enable) { m_changeCursorImage = enable; }
-    void setCursor(const std::string& cursor);
 
     int getX() { return m_rect.x(); }
     int getY() { return m_rect.y(); }
@@ -392,15 +366,14 @@ public:
     Size getBackgroundSize() { return m_backgroundRect.size(); }
     Rect getBackgroundRect() { return m_backgroundRect; }
     Color getIconColor() { return m_iconColor; }
-    int getIconOffsetX() { return m_iconOffset.x; }
-    int getIconOffsetY() { return m_iconOffset.y; }
-    Point getIconOffset() { return m_iconOffset; }
+    int getIconOffsetX() { return m_iconRect.x(); }
+    int getIconOffsetY() { return m_iconRect.y(); }
+    Point getIconOffset() { return m_iconRect.topLeft(); }
     int getIconWidth() { return m_iconRect.width(); }
     int getIconHeight() { return m_iconRect.height(); }
     Size getIconSize() { return m_iconRect.size(); }
     Rect getIconRect() { return m_iconRect; }
     Rect getIconClip() { return m_iconClipRect; }
-    std::string getIconPath() { return m_iconPath; }
     Fw::AlignmentFlag getIconAlign() { return m_iconAlign; }
     Color getBorderTopColor() { return m_borderColor.top; }
     Color getBorderRightColor() { return m_borderColor.right; }
@@ -420,7 +393,7 @@ public:
     int getPaddingLeft() { return m_padding.left; }
     float getOpacity() { return m_opacity; }
     float getRotation() { return m_rotation; }
-    bool isChangingCursorImage() { return m_changeCursorImage; }
+
 
 // image
 private:
@@ -435,9 +408,6 @@ private:
     stdext::boolean<true> m_imageMustRecache;
     stdext::boolean<false> m_imageBordered;
 
-    std::string m_cursor;
-    stdext::boolean<false> m_changeCursorImage;
-
 protected:
     void drawImage(const Rect& screenCoords);
 
@@ -448,15 +418,12 @@ protected:
     Point m_iconOffset;
     stdext::boolean<false> m_imageFixedRatio;
     stdext::boolean<false> m_imageRepeated;
-    stdext::boolean<true> m_imageSmooth;
+    stdext::boolean<false> m_imageSmooth;
     stdext::boolean<false> m_imageAutoResize;
     EdgeGroup<int> m_imageBorder;
-    std::string m_shader;
 
 public:
-    void setQRCode(const std::string& code, int border);
     void setImageSource(const std::string& source);
-    void setImageSourceBase64(const std::string & data);
     void setImageClip(const Rect& clipRect) { m_imageClipRect = clipRect; updateImageCache(); }
     void setImageOffsetX(int x) { m_imageRect.setX(x); updateImageCache(); }
     void setImageOffsetY(int y) { m_imageRect.setY(y); updateImageCache(); }
@@ -475,7 +442,6 @@ public:
     void setImageBorderBottom(int border) { m_imageBorder.bottom = border; configureBorderImage(); }
     void setImageBorderLeft(int border) { m_imageBorder.left = border; configureBorderImage(); }
     void setImageBorder(int border) { m_imageBorder.set(border); configureBorderImage(); }
-    void setImageShader(const std::string& str) { m_shader = str; }
 
     Rect getImageClip() { return m_imageClipRect; }
     int getImageOffsetX() { return m_imageRect.x(); }
@@ -495,7 +461,6 @@ public:
     int getImageBorderLeft() { return m_imageBorder.left; }
     int getImageTextureWidth() { return m_imageTexture ? m_imageTexture->getWidth() : 0; }
     int getImageTextureHeight() { return m_imageTexture ? m_imageTexture->getHeight() : 0; }
-    std::string getImageShader() { return m_shader; }
 
 // text related
 private:
@@ -503,6 +468,7 @@ private:
     void parseTextStyle(const OTMLNodePtr& styleNode);
 
     stdext::boolean<true> m_textMustRecache;
+    CoordsBuffer m_textCoordsBuffer;
     Rect m_textCachedScreenCoords;
 
 protected:
@@ -521,16 +487,12 @@ protected:
     stdext::boolean<false> m_textHorizontalAutoResize;
     stdext::boolean<false> m_textOnlyUpperCase;
     BitmapFontPtr m_font;
-    std::vector<std::pair<int, Color>> m_textColors;
-    std::vector<std::pair<int, Color>> m_drawTextColors;
-    stdext::boolean<false> m_shadow;
 
 public:
     void resizeToText() { setSize(getTextSize()); }
     void clearText() { setText(""); }
 
     void setText(std::string text, bool dontFireLuaCall = false);
-    void setColoredText(const std::vector<std::string>& texts, bool dontFireLuaCall = false);
     void setTextAlign(Fw::AlignmentFlag align) { m_textAlign = align; updateText(); }
     void setTextOffset(const Point& offset) { m_textOffset = offset; updateText(); }
     void setTextWrap(bool textWrap) { m_textWrap = textWrap; updateText(); }
@@ -539,7 +501,6 @@ public:
     void setTextVerticalAutoResize(bool textAutoResize) { m_textVerticalAutoResize = textAutoResize; updateText(); }
     void setTextOnlyUpperCase(bool textOnlyUpperCase) { m_textOnlyUpperCase = textOnlyUpperCase; setText(m_text); }
     void setFont(const std::string& fontName);
-    void setShadow(bool shadow) { m_shadow = shadow; }
 
     std::string getText() { return m_text; }
     std::string getDrawText() { return m_drawText; }

@@ -25,26 +25,11 @@
 #include "crashhandler.h"
 #include <framework/global.h>
 #include <framework/core/application.h>
-#include <framework/core/resourcemanager.h>
 
 #include <winsock2.h>
 #include <windows.h>
 #include <process.h>
-
-#ifdef _MSC_VER
-
-#pragma warning (push)
-#pragma warning (disable:4091) // warning C4091: 'typedef ': ignored on left of '' when no variable is declared
 #include <imagehlp.h>
-#pragma warning (pop)
-
-#else
-
-#include <imagehlp.h>
-
-#endif
-
-bool quiet_crash = false;
 
 const char *getExceptionName(DWORD exceptionCode)
 {
@@ -116,7 +101,7 @@ void Stacktrace(LPEXCEPTION_POINTERS e, std::stringstream& ss)
 
         dwModBase = SymGetModuleBase(process, sf.AddrPC.Offset);
         if(dwModBase)
-            GetModuleFileNameA((HINSTANCE)dwModBase, modname, MAX_PATH);
+            GetModuleFileName((HINSTANCE)dwModBase, modname, MAX_PATH);
         else
             strcpy(modname, "Unknown");
 
@@ -133,7 +118,7 @@ void Stacktrace(LPEXCEPTION_POINTERS e, std::stringstream& ss)
     GlobalFree(pSym);
 }
 
-LONG CALLBACK ExceptionHandler(PEXCEPTION_POINTERS e)
+LONG CALLBACK ExceptionHandler(LPEXCEPTION_POINTERS e)
 {
     // generate crash report
     SymInitialize(GetCurrentProcess(), 0, TRUE);
@@ -157,23 +142,23 @@ LONG CALLBACK ExceptionHandler(PEXCEPTION_POINTERS e)
     g_logger.info(ss.str());
 
     // write stacktrace to crashreport.log
-    auto dumpFilePath = std::filesystem::path(g_resources.getWriteDir());
-    dumpFilePath /= "crashreport.log";
-    std::ofstream fout(dumpFilePath, std::ios::out | std::ios::app);
+    char dir[MAX_PATH];
+    GetCurrentDirectory(sizeof(dir) - 1, dir);
+    std::string fileName = stdext::format("%s\\crashreport.log", dir);
+    std::ofstream fout(fileName.c_str(), std::ios::out | std::ios::app);
     if(fout.is_open() && fout.good()) {
         fout << ss.str();
         fout.close();
-        g_logger.info(stdext::format("Crash report saved to file %s", dumpFilePath.string()));
+        g_logger.info(stdext::format("Crash report saved to file %s", fileName));
     } else
         g_logger.error("Failed to save crash report!");
 
     // inform the user
-    std::string msg = std::string(
+    std::string msg = stdext::format(
         "The application has crashed.\n\n"
-        "A crash report has been written to:\n") + dumpFilePath.string();
-    if(!g_app.isStopping() && !quiet_crash) {
-        MessageBoxA(NULL, msg.c_str(), "Application crashed", 0);
-    }
+        "A crash report has been written to:\n"
+        "%s", fileName.c_str());
+    MessageBox(NULL, msg.c_str(), "Application crashed", 0);
 
     // this seems to silently close the application
     //return EXCEPTION_EXECUTE_HANDLER;
@@ -182,106 +167,9 @@ LONG CALLBACK ExceptionHandler(PEXCEPTION_POINTERS e)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-
-#define TRACE_MAX_FUNCTION_NAME_LENGTH 1024
-#define TRACE_LOG_ERRORS FALSE
-#define TRACE_DUMP_NAME "exception.dmp"
-#define TRACE_DUMP_NAME_QUIET "exception2.dmp"
-#define TRACE_DUMP_NAME_FULL "exception_full.dmp"
-
-LONG WINAPI UnhandledExceptionFilter2(PEXCEPTION_POINTERS exception)
-{
-    CONTEXT context = *(exception->ContextRecord);
-    HANDLE thread = GetCurrentThread();
-    HANDLE process = GetCurrentProcess();
-    STACKFRAME frame;
-    memset(&frame, 0, sizeof(STACKFRAME));
-    DWORD image;
-
-#ifdef _M_IX86
-    image = IMAGE_FILE_MACHINE_I386;
-    frame.AddrPC.Offset = context.Eip;
-    frame.AddrPC.Mode = AddrModeFlat;
-    frame.AddrFrame.Offset = context.Ebp;
-    frame.AddrFrame.Mode = AddrModeFlat;
-    frame.AddrStack.Offset = context.Esp;
-    frame.AddrStack.Mode = AddrModeFlat;
-#elif _M_X64
-    image = IMAGE_FILE_MACHINE_AMD64;
-    frame.AddrPC.Offset = context.Rip;
-    frame.AddrPC.Mode = AddrModeFlat;
-    frame.AddrFrame.Offset = context.Rbp;
-    frame.AddrFrame.Mode = AddrModeFlat;
-    frame.AddrStack.Offset = context.Rsp;
-    frame.AddrStack.Mode = AddrModeFlat;
-#elif _M_IA64
-    image = IMAGE_FILE_MACHINE_IA64;
-    frame.AddrPC.Offset = context.StIIP;
-    frame.AddrPC.Mode = AddrModeFlat;
-    frame.AddrFrame.Offset = context.IntSp;
-    frame.AddrFrame.Mode = AddrModeFlat;
-    frame.AddrBStore.Offset = context.RsBSP;
-    frame.AddrBStore.Mode = AddrModeFlat;
-    frame.AddrStack.Offset = context.IntSp;
-    frame.AddrStack.Mode = AddrModeFlat;
-#else
-#error "This platform is not supported."
-#endif
-
-    auto dumpFilePath = std::filesystem::path(g_resources.getWriteDir());
-    if (quiet_crash) {
-        dumpFilePath /= TRACE_DUMP_NAME_QUIET;
-    } else {
-        dumpFilePath /= TRACE_DUMP_NAME;
-    }
-    {
-        HANDLE dumpFile = CreateFileA(dumpFilePath.string().c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-        MINIDUMP_EXCEPTION_INFORMATION exceptionInformation;
-        exceptionInformation.ThreadId = GetCurrentThreadId();
-        exceptionInformation.ExceptionPointers = exception;
-        exceptionInformation.ClientPointers = FALSE;
-        int flags = MiniDumpWithIndirectlyReferencedMemory | MiniDumpScanMemory;
-        MiniDumpWriteDump(process, GetProcessId(process), dumpFile, (MINIDUMP_TYPE)flags, exception ? &exceptionInformation : NULL, NULL, NULL);
-    }
-    {
-        dumpFilePath = std::filesystem::path(g_resources.getWriteDir());
-        dumpFilePath /= TRACE_DUMP_NAME_FULL;
-        HANDLE dumpFile = CreateFileA(dumpFilePath.string().c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-        MINIDUMP_EXCEPTION_INFORMATION exceptionInformation;
-        exceptionInformation.ThreadId = GetCurrentThreadId();
-        exceptionInformation.ExceptionPointers = exception;
-        exceptionInformation.ClientPointers = FALSE;
-        int flags = MiniDumpWithPrivateReadWriteMemory |
-            MiniDumpWithDataSegs |
-            MiniDumpWithHandleData |
-            MiniDumpWithFullMemoryInfo |
-            MiniDumpWithThreadInfo |
-            MiniDumpWithUnloadedModules;
-        MiniDumpWriteDump(process, GetProcessId(process), dumpFile, (MINIDUMP_TYPE)flags, exception ? &exceptionInformation : NULL, NULL, NULL);
-    }
-
-    if (quiet_crash) {
-#ifdef _MSC_VER
-        quick_exit(0);
-#else
-        exit(0);
-#endif
-    }
-
-    Sleep(1000);
-    ExceptionHandler(exception);
-
-    return EXCEPTION_CONTINUE_SEARCH;
-}
-
 void installCrashHandler()
 {
-    SetUnhandledExceptionFilter(UnhandledExceptionFilter2);
-}
-
-void uninstallCrashHandler()
-{
-    quiet_crash = true;
+    SetUnhandledExceptionFilter(ExceptionHandler);
 }
 
 #endif

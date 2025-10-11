@@ -24,11 +24,10 @@
 #include "thingtypemanager.h"
 #include "map.h"
 #include "tile.h"
-#include "spritemanager.h"
 #include <framework/core/clock.h>
 #include <framework/core/eventdispatcher.h>
 
-void Missile::draw(const Point& dest, bool animate, LightView* lightView)
+void Missile::draw(const Point& dest, float scaleFactor, bool animate, LightView *lightView)
 {
     if(m_id == 0 || !animate)
         return;
@@ -64,20 +63,17 @@ void Missile::draw(const Point& dest, bool animate, LightView* lightView)
     }
 
     float fraction = m_animationTimer.ticksElapsed() / m_duration;
-    rawGetThingType()->draw(dest + m_delta * fraction, 0, xPattern, yPattern, 0, 0, Color::white, lightView);
+    rawGetThingType()->draw(dest + m_delta * fraction * scaleFactor, scaleFactor, 0, xPattern, yPattern, 0, 0, lightView);
 }
 
 void Missile::setPath(const Position& fromPosition, const Position& toPosition)
 {
-    m_source = fromPosition;
-    m_destination = toPosition;
-
     m_direction = fromPosition.getDirectionFromPosition(toPosition);
 
     m_position = fromPosition;
     m_delta = Point(toPosition.x - fromPosition.x, toPosition.y - fromPosition.y);
     m_duration = 150 * std::sqrt(m_delta.length());
-    m_delta *= g_sprites.spriteSize();
+    m_delta *= Otc::TILE_PIXELS;
     m_animationTimer.restart();
 
     // schedule removal

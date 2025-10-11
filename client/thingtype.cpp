@@ -29,8 +29,6 @@
 #include <framework/graphics/texture.h>
 #include <framework/graphics/image.h>
 #include <framework/graphics/texturemanager.h>
-#include <framework/graphics/framebuffermanager.h>
-#include <framework/graphics/shadermanager.h>
 #include <framework/core/filestream.h>
 #include <framework/otml/otml.h>
 
@@ -260,19 +258,6 @@ void ThingType::unserialize(uint16 clientId, ThingCategory category, const FileS
             case ThingAttrLensHelp:
                 m_attribs.set(attr, fin->getU16());
                 break;
-            case ThingAttrBones: {
-                m_bones.resize(4);
-                uint16 x = fin->getU16(), y = fin->getU16();
-                m_bones[Otc::North] = Point(x, y);
-                x = fin->getU16(), y = fin->getU16();
-                m_bones[Otc::South] = Point(x, y);
-                x = fin->getU16(), y = fin->getU16();
-                m_bones[Otc::East] = Point(x, y);
-                x = fin->getU16(), y = fin->getU16();
-                m_bones[Otc::West] = Point(x, y);
-                m_attribs.set(attr, true);
-                break;
-            }
             default:
                 m_attribs.set(attr, true);
                 break;
@@ -289,9 +274,6 @@ void ThingType::unserialize(uint16 clientId, ThingCategory category, const FileS
     m_animationPhases = 0;
     int totalSpritesCount = 0;
 
-    std::vector<Size> sizes;
-    std::vector<int> total_sprites;
-
     for(int i = 0; i < groupCount; ++i) {
         uint8 frameGroupType = FrameGroupDefault;
         if(hasFrameGroups)
@@ -300,13 +282,12 @@ void ThingType::unserialize(uint16 clientId, ThingCategory category, const FileS
         uint8 width = fin->getU8();
         uint8 height = fin->getU8();
         m_size = Size(width, height);
-        sizes.push_back(m_size);
         if(width > 1 || height > 1) {
             m_realSize = fin->getU8();
-            m_exactSize = std::min<int>(m_realSize, std::max<int>(width * g_sprites.spriteSize(), height * g_sprites.spriteSize()));
+            m_exactSize = std::min<int>(m_realSize, std::max<int>(width * 32, height * 32));
         }
         else
-            m_exactSize = g_sprites.spriteSize();
+            m_exactSize = 32;
 
         m_layers = fin->getU8();
         m_numPatternX = fin->getU8();
@@ -320,21 +301,11 @@ void ThingType::unserialize(uint16 clientId, ThingCategory category, const FileS
         m_animationPhases += groupAnimationsPhases;
 
         if(groupAnimationsPhases > 1 && g_game.getFeature(Otc::GameEnhancedAnimations)) {
-            AnimatorPtr animator = AnimatorPtr(new Animator);
-            animator->unserialize(groupAnimationsPhases, fin);
-
-            switch (frameGroupType) {
-            case FrameGroupIdle:
-                m_idleAnimator = animator;
-                break;
-            case FrameGroupMoving:
-                m_animator = animator;
-                break;
-            }
+            m_animator = AnimatorPtr(new Animator);
+            m_animator->unserialize(groupAnimationsPhases, fin);
         }
 
         int totalSprites = m_size.area() * m_layers * m_numPatternX * m_numPatternY * m_numPatternZ * groupAnimationsPhases;
-        total_sprites.push_back(totalSprites);
 
         if((totalSpritesCount+totalSprites) > 4096)
             stdext::throw_exception("a thing type has more than 4096 sprites");
@@ -346,78 +317,31 @@ void ThingType::unserialize(uint16 clientId, ThingCategory category, const FileS
         totalSpritesCount += totalSprites;
     }
 
-    if(sizes.size() > 1) {
-        // correction for some sprites
-        for (auto& s : sizes) {
-            m_size.setWidth(std::max<int>(m_size.width(), s.width()));
-            m_size.setHeight(std::max<int>(m_size.height(), s.height()));
-        }
-        size_t expectedSize = m_size.area() * m_layers * m_numPatternX * m_numPatternY * m_numPatternZ * m_animationPhases;
-        if (expectedSize != m_spritesIndex.size()) {
-            std::vector<int> sprites(std::move(m_spritesIndex));
-            m_spritesIndex.clear();
-            m_spritesIndex.reserve(expectedSize);
-            for (size_t i = 0, idx = 0; i < sizes.size(); ++i) {
-                int totalSprites = total_sprites[i];
-                if (m_size == sizes[i]) {
-                    for (int j = 0; j < totalSprites; ++j) {
-                        m_spritesIndex.push_back(sprites[idx++]);
-                    }
-                    continue;
-                }
-                size_t patterns = (totalSprites / sizes[i].area());
-                for (size_t p = 0; p < patterns; ++p) {
-                    for (int x = 0; x < m_size.width(); ++x) {
-                        for (int y = 0; y < m_size.height(); ++y) {
-                            if (x < sizes[i].width() && y < sizes[i].height()) {
-                                m_spritesIndex.push_back(sprites[idx++]);
-                                continue;
-                            }
-                            m_spritesIndex.push_back(0);
-                        }
-                    }
-                }
-            }
-            //if (m_spritesIndex.size() != expectedSize) {
-            //    g_logger.warning(stdext::format("Wrong thingtype: %i - %i - %i", clientId, m_spritesIndex.size(), expectedSize));
-            //}
-        }
-    }
-
-    if (m_idleAnimator && !m_animator) {
-        m_animator = m_idleAnimator;
-        m_idleAnimator = nullptr;
-    }
-
     m_textures.resize(m_animationPhases);
     m_texturesFramesRects.resize(m_animationPhases);
     m_texturesFramesOriginRects.resize(m_animationPhases);
     m_texturesFramesOffsets.resize(m_animationPhases);
-
-    m_lastUsage = g_clock.seconds();
 }
 
 void ThingType::exportImage(std::string fileName)
 {
-    if (m_null)
+    if(m_null)
         stdext::throw_exception("cannot export null thingtype");
 
-    if (m_spritesIndex.size() == 0)
+    if(m_spritesIndex.size() == 0)
         stdext::throw_exception("cannot export thingtype without sprites");
 
-    size_t spriteSize = g_sprites.spriteSize();
-
-    ImagePtr image(new Image(Size(spriteSize * m_size.width() * m_layers * m_numPatternX, spriteSize * m_size.height() * m_animationPhases * m_numPatternY * m_numPatternZ)));
-    for (int z = 0; z < m_numPatternZ; ++z) {
-        for (int y = 0; y < m_numPatternY; ++y) {
-            for (int x = 0; x < m_numPatternX; ++x) {
-                for (int l = 0; l < m_layers; ++l) {
-                    for (int a = 0; a < m_animationPhases; ++a) {
-                        for (int w = 0; w < m_size.width(); ++w) {
-                            for (int h = 0; h < m_size.height(); ++h) {
-                                image->blit(Point(spriteSize * (m_size.width() - w - 1 + m_size.width() * x + m_size.width() * m_numPatternX * l),
-                                    spriteSize * (m_size.height() - h - 1 + m_size.height() * y + m_size.height() * m_numPatternY * a + m_size.height() * m_numPatternY * m_animationPhases * z)),
-                                    g_sprites.getSpriteImage(m_spritesIndex[getSpriteIndex(w, h, l, x, y, z, a)]));
+    ImagePtr image(new Image(Size(32 * m_size.width() * m_layers * m_numPatternX, 32 * m_size.height() * m_animationPhases * m_numPatternY * m_numPatternZ)));
+    for(int z = 0; z < m_numPatternZ; ++z) {
+        for(int y = 0; y < m_numPatternY; ++y) {
+            for(int x = 0; x < m_numPatternX; ++x) {
+                for(int l = 0; l < m_layers; ++l) {
+                    for(int a = 0; a < m_animationPhases; ++a) {
+                        for(int w = 0; w < m_size.width(); ++w) {
+                            for(int h = 0; h < m_size.height(); ++h) {
+                                image->blit(Point(32 * (m_size.width() - w - 1 + m_size.width() * x + m_size.width() * m_numPatternX * l),
+                                                  32 * (m_size.height() - h - 1 + m_size.height() * y + m_size.height() * m_numPatternY * a + m_size.height() * m_numPatternY * m_animationPhases * z)),
+                                            g_sprites.getSpriteImage(m_spritesIndex[getSpriteIndex(w, h, l, x, y, z, a)]));
                             }
                         }
                     }
@@ -427,49 +351,6 @@ void ThingType::exportImage(std::string fileName)
     }
 
     image->savePNG(fileName);
-}
-
-void ThingType::replaceSprites(std::map<uint32_t, ImagePtr>& replacements, std::string fileName)
-{
-    if (m_null)
-        stdext::throw_exception("cannot export null thingtype");
-
-    if (m_spritesIndex.size() == 0)
-        stdext::throw_exception("cannot export thingtype without sprites");
-
-    size_t spriteSize = g_sprites.spriteSize();
-
-    ImagePtr image = Image::loadPNG(fileName);
-    if (!image)
-        stdext::throw_exception(stdext::format("can't load image from %s", fileName));
-
-    for (int z = 0; z < m_numPatternZ; ++z) {
-        for (int y = 0; y < m_numPatternY; ++y) {
-            for (int x = 0; x < m_numPatternX; ++x) {
-                for (int l = 0; l < m_layers; ++l) {
-                    for (int a = 0; a < m_animationPhases; ++a) {
-                        for (int w = 0; w < m_size.width(); ++w) {
-                            for (int h = 0; h < m_size.height(); ++h) {
-                                uint32_t sprite = m_spritesIndex[getSpriteIndex(w, h, l, x, y, z, a)];
-                                ImagePtr orgSprite = g_sprites.getSpriteImage(m_spritesIndex[getSpriteIndex(w, h, l, x, y, z, a)]);
-                                if (!orgSprite) continue;
-                                Point src(spriteSize * (m_size.width() - w - 1 + m_size.width() * x + m_size.width() * m_numPatternX * l),
-                                    spriteSize * (m_size.height() - h - 1 + m_size.height() * y + m_size.height() * m_numPatternY * a + m_size.height() * m_numPatternY * m_animationPhases * z));
-                                src = src * 2;
-                                ImagePtr newSprite(new Image(Size(orgSprite->getSize() * 2)));
-                                for (int x = 0; x < newSprite->getSize().width(); ++x) {
-                                    for (int y = 0; y < newSprite->getSize().height(); ++y) {
-                                        newSprite->setPixel(x, y, image->getPixel(src.x + x, src.y + y));
-                                    }
-                                }
-                                replacements[sprite] = newSprite;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 void ThingType::unserializeOtml(const OTMLNodePtr& node)
@@ -490,238 +371,57 @@ void ThingType::unserializeOtml(const OTMLNodePtr& node)
     }
 }
 
-void ThingType::unload()
+void ThingType::draw(const Point& dest, float scaleFactor, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, LightView *lightView)
 {
-    m_textures.clear();
-    m_texturesFramesRects.clear();
-    m_texturesFramesOriginRects.clear();
-    m_texturesFramesOffsets.clear();
+    if(m_null)
+        return;
 
-    m_textures.resize(m_animationPhases);
-    m_texturesFramesRects.resize(m_animationPhases);
-    m_texturesFramesOriginRects.resize(m_animationPhases);
-    m_texturesFramesOffsets.resize(m_animationPhases);
-
-    m_loaded = false;
-}
-
-DrawQueueItem* ThingType::draw(const Point& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, Color color, LightView* lightView)
-{
-    if (m_null)
-        return nullptr;
-
-    if (animationPhase < 0 || animationPhase >= m_animationPhases)
-        return nullptr;
+    if(animationPhase >= m_animationPhases)
+        return;
 
     const TexturePtr& texture = getTexture(animationPhase); // texture might not exists, neither its rects.
-    if (!texture)
-        return nullptr;
+    if(!texture)
+        return;
 
     uint frameIndex = getTextureIndex(layer, xPattern, yPattern, zPattern);
-    if (frameIndex >= m_texturesFramesRects[animationPhase].size())
-        return nullptr;
+    if(frameIndex >= m_texturesFramesRects[animationPhase].size())
+        return;
 
-    Point textureOffset = m_texturesFramesOffsets[animationPhase][frameIndex];
-    Rect textureRect = m_texturesFramesRects[animationPhase][frameIndex];
+    Point textureOffset;
+    Rect textureRect;
 
-    Rect screenRect(dest + (textureOffset - m_displacement * g_sprites.getOffsetFactor() - (m_size.toPoint() - Point(1, 1)) * g_sprites.spriteSize()), textureRect.size());
-
-    bool useOpacity = m_opacity < 1.0f;
-    if (useOpacity)
-        color.setAlpha(m_opacity);
-
-    if (lightView && hasLight())
-        lightView->addLight(screenRect.center(), getLight());
-
-    return g_drawQueue->addTexturedRect(screenRect, texture, textureRect, color);
-}
-
-DrawQueueItem* ThingType::draw(const Rect& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, Color color)
-{
-    if (m_null)
-        return nullptr;
-
-    if (animationPhase < 0 || animationPhase >= m_animationPhases)
-        return nullptr;
-
-    const TexturePtr& texture = getTexture(animationPhase); // texture might not exists, neither its rects.
-    if (!texture)
-        return nullptr;
-
-    uint frameIndex = getTextureIndex(layer, xPattern, yPattern, zPattern);
-    if (frameIndex >= m_texturesFramesRects[animationPhase].size())
-        return nullptr;
-
-    Point textureOffset = m_texturesFramesOffsets[animationPhase][frameIndex];
-    Rect textureRect = m_texturesFramesRects[animationPhase][frameIndex];
-
-    bool useOpacity = m_opacity < 1.0f;
-    if (useOpacity)
-        color.setAlpha(m_opacity);
-
-    Size size = m_size * g_sprites.spriteSize();
-    if (!size.isValid())
-        return nullptr;
-
-    // size correction for some too big items
-    if ((m_size.width() > 1 || m_size.height() > 1) &&
-        textureRect.width() <= g_sprites.spriteSize() && textureRect.height() <= g_sprites.spriteSize()) {
-        size = Size(g_sprites.spriteSize(), g_sprites.spriteSize());
-        textureOffset = Point((g_sprites.spriteSize() - textureRect.width()) / m_size.width(),
-                              (g_sprites.spriteSize() - textureRect.height()) / m_size.height());
+    if(scaleFactor != 1.0f) {
+        textureRect = m_texturesFramesOriginRects[animationPhase][frameIndex];
+    } else {
+        textureOffset = m_texturesFramesOffsets[animationPhase][frameIndex];
+        textureRect = m_texturesFramesRects[animationPhase][frameIndex];
     }
 
-    float scale = std::min<float>((float)dest.width() / size.width(), (float)dest.height() / size.height());
-    return g_drawQueue->addTexturedRect(Rect(dest.topLeft() + (textureOffset * scale), textureRect.size() * scale), texture, textureRect, color);
-}
-
-std::shared_ptr<DrawOutfitParams> ThingType::drawOutfit(const Point& dest, int maskLayer, int xPattern, int yPattern, int zPattern, int animationPhase, Color color, LightView* lightView)
-{
-    if (m_null)
-        return nullptr;
-
-    if (animationPhase < 0 || animationPhase >= m_animationPhases)
-        return nullptr;
-
-    const TexturePtr& texture = getTexture(animationPhase); // texture might not exists, neither its rects.
-    if (!texture)
-        return nullptr;
-
-    uint frameIndex = getTextureIndex(0, xPattern, yPattern, zPattern);
-    uint frameIndex2 = getTextureIndex(maskLayer, xPattern, yPattern, zPattern);
-    if (frameIndex >= m_texturesFramesRects[animationPhase].size() || frameIndex2 >= m_texturesFramesRects[animationPhase].size())
-        return nullptr;
-
-    Point textureOffset = m_texturesFramesOffsets[animationPhase][frameIndex];
-    Point textureOffset2 = m_texturesFramesOffsets[animationPhase][frameIndex2];
-    Rect textureRect = m_texturesFramesRects[animationPhase][frameIndex];
-    Rect textureRect2 = m_texturesFramesRects[animationPhase][frameIndex2];
-    Size size = textureRect.size();
-    if (!size.isValid())
-        return nullptr;
-    Rect screenRect(dest + (textureOffset - m_displacement * g_sprites.getOffsetFactor() - (m_size.toPoint() - Point(1, 1)) * g_sprites.spriteSize()), textureRect.size());
+    Rect screenRect(dest + (textureOffset - m_displacement - (m_size.toPoint() - Point(1, 1)) * 32) * scaleFactor,
+                    textureRect.size() * scaleFactor);
 
     bool useOpacity = m_opacity < 1.0f;
-    if (useOpacity)
-        color.setAlpha(m_opacity);
 
-    if (lightView && hasLight())
-        lightView->addLight(screenRect.center(), getLight());
+    if(useOpacity)
+        g_painter->setColor(Color(1.0f,1.0f,1.0f,m_opacity));
 
-    Point offset = textureOffset - textureOffset2;
-    offset += textureRect2.topLeft() - textureRect.topLeft();
+    g_painter->drawTexturedRect(screenRect, texture, textureRect);
 
-    return std::shared_ptr< DrawOutfitParams>(new DrawOutfitParams
-                           { screenRect, texture, textureRect, offset, color});
-}
+    if(useOpacity)
+        g_painter->setColor(Color::white);
 
-Rect ThingType::getDrawSize(const Point& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase)
-{
-    if (m_null)
-        return Rect(0, 0, 1, 1);
-
-    if (animationPhase < 0 || animationPhase >= m_animationPhases)
-        return Rect(0, 0, 1, 1);
-
-    const TexturePtr& texture = getTexture(animationPhase); // texture might not exists, neither its rects.
-    if (!texture)
-        return Rect(0, 0, 1, 1);
-
-    uint frameIndex = getTextureIndex(layer, xPattern, yPattern, zPattern);
-    if (frameIndex >= m_texturesFramesRects[animationPhase].size())
-        return Rect(0, 0, 1, 1);
-
-    Point textureOffset = m_texturesFramesOffsets[animationPhase][frameIndex];
-    Rect textureRect = m_texturesFramesRects[animationPhase][frameIndex];
-    return Rect(dest + textureOffset - m_displacement - (m_size.toPoint() - Point(1, 1)) * g_sprites.spriteSize(), textureRect.size());
-}
-
-void ThingType::drawWithShader(const Point& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, const std::string& shader, Color color, LightView* lightView)
-{
-    if (m_null)
-        return;
-
-    if (animationPhase < 0 || animationPhase >= m_animationPhases)
-        return;
-
-    const TexturePtr& texture = getTexture(animationPhase); // texture might not exists, neither its rects.
-    if (!texture)
-        return;
-
-    uint frameIndex = getTextureIndex(layer, xPattern, yPattern, zPattern);
-    if (frameIndex >= m_texturesFramesRects[animationPhase].size())
-        return;
-
-    Point textureOffset = m_texturesFramesOffsets[animationPhase][frameIndex];
-    Rect textureRect = m_texturesFramesRects[animationPhase][frameIndex];
-
-    Rect screenRect(dest + (textureOffset - m_displacement * g_sprites.getOffsetFactor() - (m_size.toPoint() - Point(1, 1)) * g_sprites.spriteSize()), textureRect.size());
-
-    bool useOpacity = m_opacity < 1.0f;
-    if (useOpacity)
-        color.setAlpha(m_opacity);
-
-    if (lightView && hasLight())
-        lightView->addLight(screenRect.center(), getLight());
-
-    DrawQueueItemTexturedRect* thing = new DrawQueueItemThingWithShader(screenRect, texture, textureRect, textureOffset, screenRect.center(), 0, shader);
-    g_drawQueue->add(thing);
-
-    //return g_drawQueue->addTexturedRect(screenRect, texture, textureRect, color);
-}
-
-void ThingType::drawWithShader(const Rect& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, const std::string& shader, Color color)
-{
-    if (m_null)
-        return;
-
-    if (animationPhase < 0 || animationPhase >= m_animationPhases)
-        return;
-
-    const TexturePtr& texture = getTexture(animationPhase); // texture might not exists, neither its rects.
-    if (!texture)
-        return;
-
-    uint frameIndex = getTextureIndex(layer, xPattern, yPattern, zPattern);
-    if (frameIndex >= m_texturesFramesRects[animationPhase].size())
-        return;
-
-    Point textureOffset = m_texturesFramesOffsets[animationPhase][frameIndex];
-    Rect textureRect = m_texturesFramesRects[animationPhase][frameIndex];
-
-    bool useOpacity = m_opacity < 1.0f;
-    if (useOpacity)
-        color.setAlpha(m_opacity);
-
-    Size size = m_size * g_sprites.spriteSize();
-    if (!size.isValid())
-        return;
-
-    // size correction for some too big items
-    if ((m_size.width() > 1 || m_size.height() > 1) &&
-        textureRect.width() <= g_sprites.spriteSize() && textureRect.height() <= g_sprites.spriteSize()) {
-        size = Size(g_sprites.spriteSize(), g_sprites.spriteSize());
-        textureOffset = Point((g_sprites.spriteSize() - textureRect.width()) / m_size.width(),
-            (g_sprites.spriteSize() - textureRect.height()) / m_size.height());
+    if(lightView && hasLight()) {
+        Light light = getLight();
+        if(light.intensity > 0)
+            lightView->addLightSource(screenRect.center(), scaleFactor, light);
     }
-
-    float scale = std::min<float>((float)dest.width() / size.width(), (float)dest.height() / size.height());
-
-    Rect screenRect = Rect(dest.topLeft() + (textureOffset * scale), textureRect.size() * scale);
-    DrawQueueItemTexturedRect* thing = new DrawQueueItemThingWithShader(screenRect, texture, textureRect, textureOffset, screenRect.center(), 0, shader);
-    g_drawQueue->add(thing);
-
-    //return g_drawQueue->addTexturedRect(Rect(dest.topLeft() + (textureOffset * scale), textureRect.size() * scale), texture, textureRect, color);
 }
 
 const TexturePtr& ThingType::getTexture(int animationPhase)
 {
-    m_lastUsage = g_clock.seconds();
-
-    int spriteSize = g_sprites.spriteSize();
     TexturePtr& animationPhaseTexture = m_textures[animationPhase];
     if(!animationPhaseTexture) {
-        bool useCustomImage = false; 
+        bool useCustomImage = false;
         if(animationPhase == 0 && !m_customImage.empty())
             useCustomImage = true;
 
@@ -729,9 +429,9 @@ const TexturePtr& ThingType::getTexture(int animationPhase)
         int textureLayers = 1;
         int numLayers = m_layers;
         if(m_category == ThingCategoryCreature && numLayers >= 2) {
-            // otcv8 optimization from 5 to 2 layers
-            textureLayers = 2;
-            numLayers = 2;
+             // 5 layers: outfit base, red mask, green mask, blue mask, yellow mask
+            textureLayers = 5;
+            numLayers = 5;
         }
 
         int indexSize = textureLayers * m_numPatternX * m_numPatternY * m_numPatternZ;
@@ -741,7 +441,7 @@ const TexturePtr& ThingType::getTexture(int animationPhase)
         if(useCustomImage)
             fullImage = Image::load(m_customImage);
         else
-            fullImage = ImagePtr(new Image(textureSize * spriteSize));
+            fullImage = ImagePtr(new Image(textureSize * Otc::TILE_PIXELS));
 
         m_texturesFramesRects[animationPhase].resize(indexSize);
         m_texturesFramesOriginRects[animationPhase].resize(indexSize);
@@ -754,26 +454,30 @@ const TexturePtr& ThingType::getTexture(int animationPhase)
                         bool spriteMask = (m_category == ThingCategoryCreature && l > 0);
                         int frameIndex = getTextureIndex(l % textureLayers, x, y, z);
                         Point framePos = Point(frameIndex % (textureSize.width() / m_size.width()) * m_size.width(),
-                                               frameIndex / (textureSize.width() / m_size.width()) * m_size.height()) * spriteSize;
+                                               frameIndex / (textureSize.width() / m_size.width()) * m_size.height()) * Otc::TILE_PIXELS;
 
-                        if (!useCustomImage) {
-                            for (int h = 0; h < m_size.height(); ++h) {
-                                for (int w = 0; w < m_size.width(); ++w) {
+                        if(!useCustomImage) {
+                            for(int h = 0; h < m_size.height(); ++h) {
+                                for(int w = 0; w < m_size.width(); ++w) {
                                     uint spriteIndex = getSpriteIndex(w, h, spriteMask ? 1 : l, x, y, z, animationPhase);
                                     ImagePtr spriteImage = g_sprites.getSpriteImage(m_spritesIndex[spriteIndex]);
-                                    if (!spriteImage) {
-                                        continue;
+                                    if(spriteImage) {
+                                        if(spriteMask) {
+                                            static Color maskColors[] = { Color::red, Color::green, Color::blue, Color::yellow };
+                                            spriteImage->overwriteMask(maskColors[l - 1]);
+                                        }
+                                        Point spritePos = Point(m_size.width()  - w - 1,
+                                                                m_size.height() - h - 1) * Otc::TILE_PIXELS;
+
+                                        fullImage->blit(framePos + spritePos, spriteImage);
                                     }
-                                    Point spritePos = Point(m_size.width() - w - 1,
-                                                            m_size.height() - h - 1) * spriteSize;
-                                    fullImage->blit(framePos + spritePos, spriteImage);
                                 }
                             }
                         }
 
-                        Rect drawRect(framePos + Point(m_size.width(), m_size.height()) * spriteSize - Point(1,1), framePos);
-                        for(int x = framePos.x; x < framePos.x + m_size.width() * spriteSize; ++x) {
-                            for(int y = framePos.y; y < framePos.y + m_size.height() * spriteSize; ++y) {
+                        Rect drawRect(framePos + Point(m_size.width(), m_size.height()) * Otc::TILE_PIXELS - Point(1,1), framePos);
+                        for(int x = framePos.x; x < framePos.x + m_size.width() * Otc::TILE_PIXELS; ++x) {
+                            for(int y = framePos.y; y < framePos.y + m_size.height() * Otc::TILE_PIXELS; ++y) {
                                 uint8 *p = fullImage->getPixel(x,y);
                                 if(p[3] != 0x00) {
                                     drawRect.setTop   (std::min<int>(y, (int)drawRect.top()));
@@ -785,21 +489,21 @@ const TexturePtr& ThingType::getTexture(int animationPhase)
                         }
 
                         m_texturesFramesRects[animationPhase][frameIndex] = drawRect;
-                        m_texturesFramesOriginRects[animationPhase][frameIndex] = Rect(framePos, Size(m_size.width(), m_size.height()) * spriteSize);// *0.5;
-                        m_texturesFramesOffsets[animationPhase][frameIndex] = (drawRect.topLeft() - framePos);
+                        m_texturesFramesOriginRects[animationPhase][frameIndex] = Rect(framePos, Size(m_size.width(), m_size.height()) * Otc::TILE_PIXELS);
+                        m_texturesFramesOffsets[animationPhase][frameIndex] = drawRect.topLeft() - framePos;
                     }
                 }
             }
         }
-        animationPhaseTexture = TexturePtr(new Texture(fullImage, true, false, true));
-        m_loaded = true;
+        animationPhaseTexture = TexturePtr(new Texture(fullImage, true));
+        animationPhaseTexture->setSmooth(true);
     }
     return animationPhaseTexture;
 }
 
 Size ThingType::getBestTextureDimension(int w, int h, int count)
 {
-    const int MAX = g_sprites.spriteSize();
+    const int MAX = 32;
 
     int k = 1;
     while(k < w)
@@ -812,9 +516,9 @@ Size ThingType::getBestTextureDimension(int w, int h, int count)
     h = k;
 
     int numSprites = w*h*count;
-    VALIDATE(numSprites <= MAX*MAX);
-    VALIDATE(w <= MAX);
-    VALIDATE(h <= MAX);
+    assert(numSprites <= MAX*MAX);
+    assert(w <= MAX);
+    assert(h <= MAX);
 
     Size bestDimension = Size(MAX, MAX);
     for(int i=w;i<=MAX;i<<=1) {
@@ -840,7 +544,7 @@ uint ThingType::getSpriteIndex(int w, int h, int l, int x, int y, int z, int a) 
         * m_layers + l)
         * m_size.height() + h)
         * m_size.width() + w;
-    VALIDATE(index < m_spritesIndex.size());
+    assert(index < m_spritesIndex.size());
     return index;
 }
 
@@ -867,36 +571,4 @@ void ThingType::setPathable(bool var)
         m_attribs.remove(ThingAttrNotPathable);
     else
         m_attribs.set(ThingAttrNotPathable, true);
-}
-
-void DrawQueueItemThingWithShader::draw()
-{
-    if (!m_texture) return;
-    PainterShaderProgramPtr shader = g_shaders.getShader(m_shader);
-    if (!shader) return DrawQueueItemTexturedRect::draw();
-    bool useFramebuffer = m_dest.size() != m_src.size();
-
-    if (useFramebuffer) {
-        g_framebuffers.getTemporaryFrameBuffer()->resize(m_src.size());
-        g_framebuffers.getTemporaryFrameBuffer()->bind();
-        g_painter->clear(Color::alpha);
-    }
-
-    g_painter->setShaderProgram(shader);
-    g_painter->setOffset(m_offset);
-    shader->setCenter(m_center);
-    shader->bindMultiTextures();
-    if (useFramebuffer) {
-        g_painter->drawTexturedRect(Rect(0, 0, m_src.size()), m_texture, m_src);
-    }
-    else {
-        g_painter->drawTexturedRect(m_dest, m_texture, m_src);
-    }
-    g_painter->resetShaderProgram();
-
-    if (useFramebuffer) {
-        g_framebuffers.getTemporaryFrameBuffer()->release();
-        g_painter->resetColor();
-        g_framebuffers.getTemporaryFrameBuffer()->draw(m_dest);
-    }
 }

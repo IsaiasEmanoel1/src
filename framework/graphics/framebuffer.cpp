@@ -26,20 +26,11 @@
 
 #include <framework/platform/platformwindow.h>
 #include <framework/core/application.h>
-#include <framework/core/eventdispatcher.h>
-#include <framework/core/asyncdispatcher.h>
-#include <framework/graphics/image.h>
 
 uint FrameBuffer::boundFbo = 0;
 
-FrameBuffer::FrameBuffer(bool withDepth)
+FrameBuffer::FrameBuffer()
 {
-#ifdef WITH_DEPTH_BUFFER
-    m_depth = withDepth;
-#else
-    if(withDepth)
-        g_logger.fatal("Depth buffer is not supported. Compile OTCv8 with WITH_DEPTH_BUFFER definition.");
-#endif
     internalCreate();
 }
 
@@ -47,97 +38,65 @@ void FrameBuffer::internalCreate()
 {
     m_prevBoundFbo = 0;
     m_fbo = 0;
-    glGenFramebuffers(1, &m_fbo);
-    if (!m_fbo)
-        g_logger.fatal("Unable to create framebuffer object");
-#ifdef WITH_DEPTH_BUFFER
-    if (m_depth) {
-        glGenRenderbuffers(1, &m_depthRbo);
-        if (!m_depthRbo)
-            g_logger.fatal("Unable to create renderbuffer object");
+    if(g_graphics.canUseFBO()) {
+        glGenFramebuffers(1, &m_fbo);
+        if(!m_fbo)
+            g_logger.fatal("Unable to create framebuffer object");
     }
-#endif
-    g_graphics.checkForError(__FUNCTION__, __FILE__, __LINE__);
 }
 
 FrameBuffer::~FrameBuffer()
 {
-    VALIDATE(!g_app.isTerminated());
-    if (g_graphics.ok() && m_fbo != 0) {
-        if (m_fbo != 0)
-            glDeleteFramebuffers(1, &m_fbo);
-#ifdef WITH_DEPTH_BUFFER
-        if (m_depthRbo != 0)
-            glDeleteRenderbuffers(1, &m_depthRbo);
+#ifndef NDEBUG
+    assert(!g_app.isTerminated());
 #endif
-    }
-    g_graphics.checkForError(__FUNCTION__, __FILE__, __LINE__);
+    if(g_graphics.ok() && m_fbo != 0)
+        glDeleteFramebuffers(1, &m_fbo);
 }
 
 void FrameBuffer::resize(const Size& size)
 {
-    if (!size.isValid())
-        g_logger.fatal(stdext::format("Invalid framebuffer size: %ix%i", size.width(), size.height()));
+    assert(size.isValid());
 
-    if (m_texture && m_texture->getSize() == size)
+    if(m_texture && m_texture->getSize() == size)
         return;
 
-    m_texture = TexturePtr(new Texture(size, false, m_smooth, true));
-    m_texture->update();
+    m_texture = TexturePtr(new Texture(size));
+    m_texture->setSmooth(m_smooth);
+    m_texture->setUpsideDown(true);
 
-#ifdef WITH_DEPTH_BUFFER
-    if (m_depth) {
-        glBindRenderbuffer(GL_RENDERBUFFER, m_depthRbo);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, size.width(), size.height());
+    if(m_fbo) {
+        internalBind();
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture->getId(), 0);
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if(status != GL_FRAMEBUFFER_COMPLETE)
+            g_logger.fatal("Unable to setup framebuffer object");
+        internalRelease();
+    } else {
+        if(m_backuping) {
+            m_screenBackup = TexturePtr(new Texture(size));
+            m_screenBackup->setUpsideDown(true);
+        }
     }
-#endif
-
-    internalBind();
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture->getId(), 0);
-
-#ifdef WITH_DEPTH_BUFFER
-    if (m_depth) {
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depthRbo);
-    }
-#endif
-
-    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    if (status != GL_FRAMEBUFFER_COMPLETE)
-        g_logger.fatal(stdext::format("Unable to setup framebuffer object - %i - %ix%i", status, size.width(), size.height()));
-    internalRelease();
-    g_graphics.checkForError(__FUNCTION__, __FILE__, __LINE__);
 }
 
-void FrameBuffer::bind(const FrameBufferPtr& depthFramebuffer)
+void FrameBuffer::bind()
 {
     g_painter->saveAndResetState();
     internalBind();
     g_painter->setResolution(m_texture->getSize());
-#ifdef WITH_DEPTH_BUFFER
-    if (!m_depth && depthFramebuffer && depthFramebuffer->hasDepth()) {
-        m_depthRbo = depthFramebuffer->getDepthRenderBuffer();
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depthRbo);
-    }
-#endif
-    g_graphics.checkForError(__FUNCTION__, __FILE__, __LINE__);
 }
 
 void FrameBuffer::release()
 {
-#ifdef WITH_DEPTH_BUFFER
-    if (!m_depth && m_depthRbo) {
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
-        m_depthRbo = 0;
-    }
-#endif
     internalRelease();
     g_painter->restoreSavedState();
-    g_graphics.checkForError(__FUNCTION__, __FILE__, __LINE__);
 }
 
 void FrameBuffer::draw()
 {
-    Rect rect(0, 0, getSize());
+    Rect rect(0,0, getSize());
     g_painter->drawTexturedRect(rect, m_texture, rect);
 }
 
@@ -148,92 +107,50 @@ void FrameBuffer::draw(const Rect& dest, const Rect& src)
 
 void FrameBuffer::draw(const Rect& dest)
 {
-    g_painter->drawTexturedRect(dest, m_texture, Rect(0, 0, getSize()));
-}
-
-std::vector<uint32_t> FrameBuffer::readPixels()
-{
-    internalBind();
-    Size size = getSize();
-    int width = size.width();
-    int height = size.height();
-    std::vector<uint32_t> ret(width * height * sizeof(GLubyte), 0);
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, (GLubyte*)(ret.data()));
-    internalRelease();
-    int halfWidth = width / 2;
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < halfWidth; ++x) {
-            std::swap(ret[y * width + x], ret[y * width + width - x - 1]);
-        }
-    }
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < halfWidth; ++x) {
-            std::swap(ret[y * width + x], ret[(height - y - 1) * width + width - x - 1]);
-        }
-    }
-    return ret;
+    g_painter->drawTexturedRect(dest, m_texture, Rect(0,0, getSize()));
 }
 
 void FrameBuffer::internalBind()
 {
-    VALIDATE(boundFbo != m_fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    m_prevBoundFbo = boundFbo;
-    boundFbo = m_fbo;
+    if(m_fbo) {
+        assert(boundFbo != m_fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+        m_prevBoundFbo = boundFbo;
+        boundFbo = m_fbo;
+    } else if(m_backuping) {
+        // backup screen color buffer into a texture
+        m_screenBackup->copyFromScreen(Rect(0, 0, getSize()));
+    }
 }
 
 void FrameBuffer::internalRelease()
 {
-    VALIDATE(boundFbo == m_fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, m_prevBoundFbo);
-    boundFbo = m_prevBoundFbo;
+    if(m_fbo) {
+        assert(boundFbo == m_fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_prevBoundFbo);
+        boundFbo = m_prevBoundFbo;
+    } else {
+        Rect screenRect(0, 0, getSize());
+
+        // copy the drawn color buffer into the framebuffer texture
+        m_texture->copyFromScreen(screenRect);
+
+        // restore screen original content
+        if(m_backuping) {
+            glDisable(GL_BLEND);
+            g_painter->setColor(Color::white);
+            g_painter->drawTexturedRect(screenRect, m_screenBackup, screenRect);
+            glEnable(GL_BLEND);
+        }
+    }
 }
 
 Size FrameBuffer::getSize()
 {
+    if(m_fbo == 0) {
+        // the buffer size is limited by the window size
+        return Size(std::min<int>(m_texture->getWidth(), g_window.getWidth()),
+                    std::min<int>(m_texture->getHeight(), g_window.getHeight()));
+    }
     return m_texture->getSize();
-}
-
-void FrameBuffer::setSmooth(bool value)
-{
-    if (!m_texture || m_smooth == value) return;
-
-    m_smooth = value;
-    m_texture->setSmooth(value);
-}
-
-void FrameBuffer::doScreenshot(std::string fileName)
-{
-    if (g_mainThreadId != std::this_thread::get_id()) {
-        g_graphicsDispatcher.addEvent(std::bind(&FrameBuffer::doScreenshot, this, fileName));
-        return;
-    }
-
-    if (fileName.empty()) {
-        fileName = "screenshot_map.png";
-    }
-
-    internalBind();
-    Size size = getSize();
-    int width = size.width();
-    int height = size.height();
-    auto pixels = std::make_shared<std::vector<uint8_t>>(width * height * 4 * sizeof(GLubyte), 0);
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, (GLubyte*)(pixels->data()));
-    internalRelease();
-
-    g_asyncDispatcher.dispatch([size, pixels, fileName] {
-        for (int line = 0, h = size.height(), w = size.width(); line != h / 2; ++line) {
-            std::swap_ranges(
-                pixels->begin() + 4 * w * line,
-                pixels->begin() + 4 * w * (line + 1),
-                pixels->begin() + 4 * w * (h - line - 1));
-        }
-        try {
-            Image image(size, 4, pixels->data());
-            image.savePNG(fileName);
-        }
-        catch (stdext::exception& e) {
-            g_logger.error(std::string("Can't do map screenshot: ") + e.what());
-        }
-    });
 }

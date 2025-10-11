@@ -33,13 +33,11 @@ public:
     void terminate();
     void clear();
 
-    FrameBufferPtr createFrameBuffer(bool withDepth = false);
+    FrameBufferPtr createFrameBuffer();
     const FrameBufferPtr& getTemporaryFrameBuffer() { return m_temporaryFramebuffer; }
-    const FrameBufferPtr& getDrawQueueTemporaryFrameBuffer() { return m_drawQueueTemporaryFramebuffer; }
 
 protected:
     FrameBufferPtr m_temporaryFramebuffer;
-    FrameBufferPtr m_drawQueueTemporaryFramebuffer;
     std::vector<FrameBufferPtr> m_framebuffers;
 };
 

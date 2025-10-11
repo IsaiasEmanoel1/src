@@ -29,7 +29,6 @@
 #include "creature.h"
 #include "item.h"
 #include <framework/luaengine/luaobject.h>
-#include <framework/stdext/time.h>
 
 enum tileflags_t
 {
@@ -63,14 +62,7 @@ public:
 
     Tile(const Position& position);
 
-    void calculateCorpseCorrection();
-
-    void drawGround(const Point& dest, LightView* lightView = nullptr);
-    void drawBottom(const Point& dest, LightView* lightView = nullptr);
-    void drawCreatures(const Point& dest, LightView* lightView = nullptr);
-    void drawTop(const Point& dest, LightView* lightView = nullptr);
-    void drawTexts(Point dest);
-    void drawWidget(Point dest);
+    void draw(const Point& dest, float scaleFactor, int drawFlags, LightView *lightView = nullptr);
 
 public:
     void clean();
@@ -87,13 +79,10 @@ public:
     ThingPtr getTopThing();
 
     ThingPtr getTopLookThing();
-    ThingPtr getTopLookThingEx(Point offset);
     ThingPtr getTopUseThing();
     CreaturePtr getTopCreature();
-    CreaturePtr getTopCreatureEx(Point offset);
     ThingPtr getTopMoveThing();
     ThingPtr getTopMultiUseThing();
-    ThingPtr getTopMultiUseThingEx(Point offset);
 
     const Position& getPosition() { return m_position; }
     int getDrawElevation() { return m_drawElevation; }
@@ -101,10 +90,8 @@ public:
     std::vector<CreaturePtr> getCreatures();
     std::vector<CreaturePtr> getWalkingCreatures() { return m_walkingCreatures; }
     std::vector<ThingPtr> getThings() { return m_things; }
-    std::vector<EffectPtr> getEffects() { return m_effects; }
     ItemPtr getGround();
     int getGroundSpeed();
-    bool isBlocking() { return m_blocking != 0; }
     uint8 getMinimapColorByte();
     int getThingCount() { return m_things.size() + m_effects.size(); }
     bool isPathable();
@@ -113,7 +100,6 @@ public:
     bool isFullyOpaque();
     bool isSingleDimension();
     bool isLookPossible();
-    bool isBlockingProjectile();
     bool isClickable();
     bool isEmpty();
     bool isDrawable();
@@ -121,10 +107,9 @@ public:
     bool mustHookSouth();
     bool mustHookEast();
     bool hasCreature();
-    bool hasBlockingCreature();
     bool limitsFloorsView(bool isFreeView = false);
     bool canErase();
-    int getElevation();
+    int getElevation() const;
     bool hasElevation(int elevation = 1);
     void overwriteMinimapColor(uint8 color) { m_minimapColor = color; }
 
@@ -144,54 +129,18 @@ public:
 
     TilePtr asTile() { return static_self_cast<Tile>(); }
 
-    void setSpeed(uint16_t speed, uint8_t blocking) {
-        m_speed = speed;
-        m_blocking = blocking;
-    }
-
-    void setText(const std::string& text, Color color);
-    std::string getText();
-    void setTimer(int time, Color color);
-    int getTimer();
-    void setFill(Color color);
-    void resetFill() { m_fill = Color::alpha; }
-
-    bool canShoot(int distance);
-	
-    void setWidget(UIWidgetPtr widget) { m_widget = widget; }
-    UIWidgetPtr getWidget() { return m_widget; }
-    void removeWidget() {
-        if (m_widget) {
-            m_widget->destroy();
-            m_widget = nullptr;
-        }
-    }
-
 private:
     void checkTranslucentLight();
 
-    std::vector<CreaturePtr> m_walkingCreatures;
-    std::vector<EffectPtr> m_effects; // leave this outside m_things because it has no stackpos.
-    std::vector<ThingPtr> m_things;
+    stdext::packed_vector<CreaturePtr> m_walkingCreatures;
+    stdext::packed_vector<EffectPtr> m_effects; // leave this outside m_things because it has no stackpos.
+    stdext::packed_vector<ThingPtr> m_things;
     Position m_position;
     uint8 m_drawElevation;
     uint8 m_minimapColor;
     uint32 m_flags, m_houseId;
-    uint16 m_speed = 0;
-    uint8 m_blocking = 0;
 
-    uint32_t m_lastCreature = 0;
-    int m_topCorrection = 0;
-    int m_topDraws = 0;
-    
     stdext::boolean<false> m_selected;
-
-    ticks_t m_timer = 0;
-    StaticTextPtr m_timerText;
-    StaticTextPtr m_text;
-    Color m_fill = Color::alpha;
-	
-	UIWidgetPtr m_widget;
 };
 
 #endif

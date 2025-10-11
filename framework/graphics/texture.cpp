@@ -26,124 +26,115 @@
 #include "image.h"
 
 #include <framework/core/application.h>
-#include <framework/core/eventdispatcher.h>
-#include <framework/util/stats.h>
-#include <framework/graphics/texturemanager.h>
 
-uint Texture::uniqueId = 1;
-
-Texture::Texture(const Size& size, bool depthTexture, bool smooth, bool upsideDown)
+Texture::Texture()
 {
-    m_uniqueId = uniqueId++;
-    m_smooth = smooth;
-    m_upsideDown = upsideDown;
-    setupSize(size);
-    m_needsUpdate = true;
-
-    g_stats.addTexture();
+    m_id = 0;
+    m_time = 0;
 }
 
-Texture::Texture(const ImagePtr& image, bool buildMipmaps, bool compress, bool smooth)
+Texture::Texture(const Size& size)
 {
-    if (!image) {
-        g_logger.fatal("Texture can't be created with null image!");
-    }
+    m_id = 0;
+    m_time = 0;
 
-    m_uniqueId = uniqueId++;
-    m_smooth = smooth;
-    m_image = image;
-    setupSize(m_image->getSize());
-    m_needsUpdate = true;
+    if(!setupSize(size))
+        return;
 
-    g_stats.addTexture();
+    createTexture();
+    bind();
+    setupPixels(0, m_glSize, nullptr, 4);
+    setupWrap();
+    setupFilters();
+}
+
+Texture::Texture(const ImagePtr& image, bool buildMipmaps, bool compress)
+{
+    m_id = 0;
+    m_time = 0;
+
+    createTexture();
+
+    uploadPixels(image, buildMipmaps, compress);
 }
 
 Texture::~Texture()
 {
-    VALIDATE(!g_app.isTerminated());
-    if (m_id != 0) { // free texture from gl memory
-        GLuint textureId = m_id;
-        g_graphicsDispatcher.addEvent([textureId] {
-            glDeleteTextures(1, &textureId);
-        });
-    }
-
-    g_stats.removeTexture();
+#ifndef NDEBUG
+    assert(!g_app.isTerminated());
+#endif
+    // free texture from gl memory
+    if(g_graphics.ok() && m_id != 0)
+        glDeleteTextures(1, &m_id);
 }
 
-void Texture::replace(const ImagePtr& image)
+void Texture::uploadPixels(const ImagePtr& image, bool buildMipmaps, bool compress)
 {
-    m_uniqueId = uniqueId++;
-    if (m_id != 0) { // free existing texture from gl memory
-        GLuint textureId = m_id;
-        g_graphicsDispatcher.addEvent([textureId] {
-            glDeleteTextures(1, &textureId);
-        });
-    }
-    if (!image) {
-        g_logger.fatal("Texture can't be replaced with null image!");
-    }
-    m_id = 0;
-    m_image = image;
-    setupSize(m_image->getSize());
-    m_needsUpdate = true;
+    if(!setupSize(image->getSize(), buildMipmaps))
+        return;
+
+    ImagePtr glImage = image;
+    if(m_size != m_glSize) {
+        glImage = ImagePtr(new Image(m_glSize, image->getBpp()));
+        glImage->paste(image);
+    } else
+        glImage = image;
+
+    bind();
+
+    if(buildMipmaps) {
+        int level = 0;
+        do {
+            setupPixels(level++, glImage->getSize(), glImage->getPixelData(), glImage->getBpp(), compress);
+        } while(glImage->nextMipmap());
+        m_hasMipmaps = true;
+    } else
+        setupPixels(0, glImage->getSize(), glImage->getPixelData(), glImage->getBpp(), compress);
+
+    setupWrap();
+    setupFilters();
 }
 
-void Texture::resize(const Size& size)
+void Texture::bind()
 {
-    if(m_id == 0) 
-        update();
-    setupSize(size);
+    // must reset painter texture state
+    g_painter->setTexture(this);
     glBindTexture(GL_TEXTURE_2D, m_id);
-    setupPixels(0, m_size, nullptr, 4);
-    m_needsUpdate = true;
-    update();
 }
 
-
-void Texture::update()
+void Texture::copyFromScreen(const Rect& screenRect)
 {
-    if (m_id == 0) {
-        glGenTextures(1, &m_id);
-        VALIDATE(m_id != 0);
-        glBindTexture(GL_TEXTURE_2D, m_id);
-        if (m_image) {
-            setupSize(m_image->getSize());
-            int level = 0;
-            do {
-                setupPixels(level++, m_image->getSize(), m_image->getPixelData(), m_image->getBpp());
-            } while (m_buildHardwareMipmaps && m_image->nextMipmap());
-        } else {
-            setupPixels(0, m_size, nullptr, 4);
-        }
-        m_image = nullptr; // free image
-        m_needsUpdate = true;
-        g_graphics.checkForError(__FUNCTION__, __FILE__, __LINE__);
-    }
-    
-    if (m_needsUpdate) {
-        glBindTexture(GL_TEXTURE_2D, m_id);
-        setupWrap();
-        setupFilters();
-        setupTranformMatrix();
-        m_needsUpdate = false;
-        g_graphics.checkForError(__FUNCTION__, __FILE__, __LINE__);
-    }
+    bind();
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, screenRect.x(), screenRect.y(), screenRect.width(), screenRect.height());
 }
 
 bool Texture::buildHardwareMipmaps()
 {
-    m_buildHardwareMipmaps = true;
+    if(!g_graphics.canUseHardwareMipmaps())
+        return false;
+
+    bind();
+
+    if(!m_hasMipmaps) {
+        m_hasMipmaps = true;
+        setupFilters();
+    }
+
+    glGenerateMipmap(GL_TEXTURE_2D);
     return true;
 }
 
 void Texture::setSmooth(bool smooth)
 {
+    if(smooth && !g_graphics.canUseBilinearFiltering())
+        return;
+
     if(smooth == m_smooth)
         return;
 
     m_smooth = smooth;
-    m_needsUpdate = true;
+    bind();
+    setupFilters();
 }
 
 void Texture::setRepeat(bool repeat)
@@ -152,7 +143,8 @@ void Texture::setRepeat(bool repeat)
         return;
 
     m_repeat = repeat;
-    m_needsUpdate = true;
+    bind();
+    setupWrap();
 }
 
 void Texture::setUpsideDown(bool upsideDown)
@@ -160,24 +152,46 @@ void Texture::setUpsideDown(bool upsideDown)
     if(m_upsideDown == upsideDown)
         return;
     m_upsideDown = upsideDown;
-    m_needsUpdate = true;
+    setupTranformMatrix();
 }
 
-void Texture::setupSize(const Size& size)
+void Texture::createTexture()
 {
-    if (size.width() > g_graphics.getMaxTextureSize() || size.height() > g_graphics.getMaxTextureSize()) {
-        g_logger.fatal(stdext::format("Tried to create texture with size %ix%i while maximum texture size is %ix%i",
-                                      size.width(), size.height(), g_graphics.getMaxTextureSize(), g_graphics.getMaxTextureSize()));
+    glGenTextures(1, &m_id);
+    assert(m_id != 0);
+}
+
+bool Texture::setupSize(const Size& size, bool forcePowerOfTwo)
+{
+    Size glSize;
+    if(!g_graphics.canUseNonPowerOfTwoTextures() || forcePowerOfTwo)
+        glSize.resize(stdext::to_power_of_two(size.width()), stdext::to_power_of_two(size.height()));
+    else
+        glSize = size;
+
+    // checks texture max size
+    if(std::max<int>(glSize.width(), glSize.height()) > g_graphics.getMaxTextureSize()) {
+        g_logger.error(stdext::format("loading texture with size %dx%d failed, "
+                 "the maximum size allowed by the graphics card is %dx%d,"
+                 "to prevent crashes the texture will be displayed as a blank texture",
+                 size.width(), size.height(), g_graphics.getMaxTextureSize(), g_graphics.getMaxTextureSize()));
+        return false;
     }
+
     m_size = size;
+    m_glSize = glSize;
+    setupTranformMatrix();
+    return true;
 }
 
 void Texture::setupWrap()
 {
-    int texParam = GL_REPEAT;
-    if(!m_repeat)
+    int texParam;
+    if(!m_repeat && g_graphics.canUseClampToEdge())
         texParam = GL_CLAMP_TO_EDGE;
-    
+    else
+        texParam = GL_REPEAT;
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, texParam);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, texParam);
 }
@@ -200,12 +214,12 @@ void Texture::setupFilters()
 void Texture::setupTranformMatrix()
 {
     if(m_upsideDown) {
-        m_transformMatrix = { 1.0f/m_size.width(),  0.0f,                                     0.0f,
-                              0.0f,                  -1.0f/m_size.height(),                   0.0f,
-                              0.0f,                   m_size.height()/(float)m_size.height(), 1.0f };
+        m_transformMatrix = { 1.0f/m_glSize.width(),  0.0f,                                     0.0f,
+                              0.0f,                  -1.0f/m_glSize.height(),                   0.0f,
+                              0.0f,                   m_size.height()/(float)m_glSize.height(), 1.0f };
     } else {
-        m_transformMatrix = { 1.0f/m_size.width(),  0.0f,                    0.0f,
-                              0.0f,                   1.0f/m_size.height(),  0.0f,
+        m_transformMatrix = { 1.0f/m_glSize.width(),  0.0f,                    0.0f,
+                              0.0f,                   1.0f/m_glSize.height(),  0.0f,
                               0.0f,                   0.0f,                    1.0f };
     }
 }
@@ -229,5 +243,13 @@ void Texture::setupPixels(int level, const Size& size, uchar* pixels, int channe
     }
 
     GLenum internalFormat = GL_RGBA;
+
+#ifdef OPENGL_ES
+    //TODO
+#else
+    if(compress)
+        internalFormat = GL_COMPRESSED_RGBA;
+#endif
+
     glTexImage2D(GL_TEXTURE_2D, level, internalFormat, size.width(), size.height(), 0, format, GL_UNSIGNED_BYTE, pixels);
 }

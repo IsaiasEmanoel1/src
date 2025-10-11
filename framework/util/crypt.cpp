@@ -29,16 +29,15 @@
 
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+
 #include <boost/functional/hash.hpp>
 
-#ifndef __EMSCRIPTEN__
 #include <openssl/rsa.h>
 #include <openssl/sha.h>
 #include <openssl/md5.h>
 #include <openssl/bn.h>
 #include <openssl/err.h>
-#endif
-#include <zlib.h>
+#include <openssl/evp.h>
 
 static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 static inline bool is_base64(unsigned char c) { return (isalnum(c) || (c == '+') || (c == '/')); }
@@ -47,16 +46,12 @@ Crypt g_crypt;
 
 Crypt::Crypt()
 {
-#ifndef __EMSCRIPTEN__
     m_rsa = RSA_new();
-#endif
 }
 
 Crypt::~Crypt()
 {
-#ifndef __EMSCRIPTEN__
     RSA_free(m_rsa);
-#endif
 }
 
 std::string Crypt::base64Encode(const std::string& decoded_string)
@@ -196,7 +191,7 @@ std::string Crypt::getCryptKey(bool useMachineUUID)
         uuid = nilgen();
     }
     boost::uuids::name_generator namegen(uuid);
-    boost::uuids::uuid u = namegen(g_app.getCompactName() + g_platform.getCPUName() + g_platform.getOSName());
+    boost::uuids::uuid u = namegen(g_app.getCompactName() + g_platform.getCPUName() + g_platform.getOSName() + g_resources.getUserDir());
     std::size_t hash = uuid_hasher(u);
     std::string key;
     key.assign((const char *)&hash, sizeof(hash));
@@ -205,7 +200,7 @@ std::string Crypt::getCryptKey(bool useMachineUUID)
 
 std::string Crypt::_encrypt(const std::string& decrypted_string, bool useMachineUUID)
 {
-    std::string tmp = std::string("0000") + decrypted_string;
+    std::string tmp = "0000" + decrypted_string;
     uint32 sum = stdext::adler32((const uint8*)decrypted_string.c_str(), decrypted_string.size());
     stdext::writeULE32((uint8*)&tmp[0], sum);
     std::string encrypted = base64Encode(xorCrypt(tmp, getCryptKey(useMachineUUID)));
@@ -228,7 +223,6 @@ std::string Crypt::_decrypt(const std::string& encrypted_string, bool useMachine
 
 std::string Crypt::md5Encode(const std::string& decoded_string, bool upperCase)
 {
-#ifndef __EMSCRIPTEN__
     MD5_CTX c;
     MD5_Init(&c);
     MD5_Update(&c, decoded_string.c_str(), decoded_string.length());
@@ -246,14 +240,10 @@ std::string Crypt::md5Encode(const std::string& decoded_string, bool upperCase)
 
     std::transform(result.begin(), result.end(), result.begin(), tolower);
     return result;
-#else
-    return "";
-#endif
 }
 
 std::string Crypt::sha1Encode(const std::string& decoded_string, bool upperCase)
 {
-#ifndef __EMSCRIPTEN__
     SHA_CTX c;
     SHA1_Init(&c);
     SHA1_Update(&c, decoded_string.c_str(), decoded_string.length());
@@ -271,14 +261,10 @@ std::string Crypt::sha1Encode(const std::string& decoded_string, bool upperCase)
 
     std::transform(result.begin(), result.end(), result.begin(), tolower);
     return result;
-#else
-    return "";
-#endif
 }
 
 std::string Crypt::sha256Encode(const std::string& decoded_string, bool upperCase)
 {
-#ifndef __EMSCRIPTEN__
     SHA256_CTX c;
     SHA256_Init(&c);
     SHA256_Update(&c, decoded_string.c_str(), decoded_string.length());
@@ -296,14 +282,10 @@ std::string Crypt::sha256Encode(const std::string& decoded_string, bool upperCas
 
     std::transform(result.begin(), result.end(), result.begin(), tolower);
     return result;
-#else
-    return "";
-#endif
 }
 
 std::string Crypt::sha512Encode(const std::string& decoded_string, bool upperCase)
 {
-#ifndef __EMSCRIPTEN__
     SHA512_CTX c;
     SHA512_Init(&c);
     SHA512_Update(&c, decoded_string.c_str(), decoded_string.length());
@@ -320,21 +302,6 @@ std::string Crypt::sha512Encode(const std::string& decoded_string, bool upperCas
         return result;
 
     std::transform(result.begin(), result.end(), result.begin(), tolower);
-    return result;
-#else
-    return "";
-#endif
-}
-
-std::string Crypt::crc32(const std::string& decoded_string, bool upperCase)
-{
-    uint32_t crc = ::crc32(0, Z_NULL, 0);
-    crc = ::crc32(crc, (const Bytef*)decoded_string.c_str(), decoded_string.size());
-    std::string result = stdext::dec_to_hex(crc);
-    if (upperCase)
-        std::transform(result.begin(), result.end(), result.begin(), toupper);
-    else
-        std::transform(result.begin(), result.end(), result.begin(), tolower);
     return result;
 }
 
@@ -358,169 +325,64 @@ void Crypt::rsaGenerateKey(int bits, int e)
     */
 }
 
-void Crypt::rsaSetPublicKey(const std::string& n, const std::string& e)
+void Crypt::rsaSetPublicKey(const std::string& n_str, const std::string& e_str)
 {
-#ifndef __EMSCRIPTEN__
-#if OPENSSL_VERSION_NUMBER < 0x10100005L
-    BN_dec2bn(&m_rsa->n, n.c_str());
-    BN_dec2bn(&m_rsa->e, e.c_str());
-    // clear rsa cache
-    if(m_rsa->_method_mod_n) {
-        BN_MONT_CTX_free(m_rsa->_method_mod_n);
-        m_rsa->_method_mod_n = nullptr;
-    }
-#else
-    BIGNUM *bn = nullptr, *be = nullptr;
-    BN_dec2bn(&bn, n.c_str());
-    BN_dec2bn(&be, e.c_str());
-    RSA_set0_key(m_rsa, bn, be, nullptr);
-#endif
-#endif
+    BIGNUM *n = NULL;
+    BIGNUM *e = NULL;
+    BN_dec2bn(&n, n_str.c_str());
+    BN_dec2bn(&e, e_str.c_str());
+    RSA_set0_key(m_rsa, n, e, NULL);
 }
 
-void Crypt::rsaSetPrivateKey(const std::string& p, const std::string& q, const std::string& d)
+void Crypt::rsaSetPrivateKey(const std::string& p_str, const std::string& q_str, const std::string& d_str)
 {
-#ifndef __EMSCRIPTEN__
-#if OPENSSL_VERSION_NUMBER < 0x10100005L
-    BN_dec2bn(&m_rsa->p, p.c_str());
-    BN_dec2bn(&m_rsa->q, q.c_str());
-    BN_dec2bn(&m_rsa->d, d.c_str());
-    // clear rsa cache
-    if(m_rsa->_method_mod_p) {
-        BN_MONT_CTX_free(m_rsa->_method_mod_p);
-        m_rsa->_method_mod_p = nullptr;
-    }
-    if(m_rsa->_method_mod_q) {
-        BN_MONT_CTX_free(m_rsa->_method_mod_q);
-        m_rsa->_method_mod_q = nullptr;
-    }
-#else
-    BIGNUM *bp = nullptr, *bq = nullptr, *bd = nullptr;
-    BN_dec2bn(&bp, p.c_str());
-    BN_dec2bn(&bq, q.c_str());
-    BN_dec2bn(&bd, d.c_str());
-    RSA_set0_key(m_rsa, nullptr, nullptr, bd);
-    RSA_set0_factors(m_rsa, bp, bq);
-#endif
-#endif
+    BIGNUM *p = NULL;
+    BIGNUM *q = NULL;
+    BIGNUM *d = NULL;
+    BN_dec2bn(&p, p_str.c_str());
+    BN_dec2bn(&q, q_str.c_str());
+    BN_dec2bn(&d, d_str.c_str());
+    RSA_set0_factors(m_rsa, p, q);
+    RSA_set0_key(m_rsa, NULL, NULL, d);
 }
 
 bool Crypt::rsaCheckKey()
 {
-#ifndef __EMSCRIPTEN__
     // only used by server, that sets both public and private
     if(RSA_check_key(m_rsa)) {
-        BN_CTX *ctx = BN_CTX_new();
-        BN_CTX_start(ctx);
+        // BN_CTX *ctx = BN_CTX_new();
+        // BN_CTX_start(ctx);
 
-        BIGNUM *r1 = BN_CTX_get(ctx), *r2 = BN_CTX_get(ctx);
-#if OPENSSL_VERSION_NUMBER < 0x10100005L
-        BN_mod(m_rsa->dmp1, m_rsa->d, r1, ctx);
-        BN_mod(m_rsa->dmq1, m_rsa->d, r2, ctx);
-        BN_mod_inverse(m_rsa->iqmp, m_rsa->q, m_rsa->p, ctx);
-#else
-        const BIGNUM *dmp1_c = nullptr, *d = nullptr, *dmq1_c = nullptr, *iqmp_c = nullptr, *q = nullptr, *p = nullptr;
+        // BIGNUM *r1 = BN_CTX_get(ctx), *r2 = BN_CTX_get(ctx);
+        // BN_mod(m_rsa->dmp1, m_rsa->d, r1, ctx);
+        // BN_mod(m_rsa->dmq1, m_rsa->d, r2, ctx);
 
-        RSA_get0_key(m_rsa, nullptr, nullptr, &d);
-        RSA_get0_factors(m_rsa, &p, &q);
-        RSA_get0_crt_params(m_rsa, &dmp1_c, &dmq1_c, &iqmp_c);
-
-        BIGNUM *dmp1 = BN_dup(dmp1_c), *dmq1 = BN_dup(dmq1_c), *iqmp = BN_dup(iqmp_c);
-
-        BN_mod(dmp1, d, r1, ctx);
-        BN_mod(dmq1, d, r2, ctx);
-        BN_mod_inverse(iqmp, q, p, ctx);
-        RSA_set0_crt_params(m_rsa, dmp1, dmq1, iqmp);
-#endif
+        // BN_mod_inverse(m_rsa->iqmp, m_rsa->q, m_rsa->p, ctx);
         return true;
     }
     else {
         ERR_load_crypto_strings();
-        g_logger.error(stdext::format("RSA check failed - %s", ERR_error_string(ERR_get_error(), nullptr)));
+        g_logger.error(stdext::format("RSA check failed - %s", ERR_error_string(ERR_get_error(), NULL)));
         return false;
     }
-#else
-    return false;
-#endif
 }
 
 bool Crypt::rsaEncrypt(unsigned char *msg, int size)
 {
-#ifndef __EMSCRIPTEN__
     if(size != RSA_size(m_rsa))
         return false;
     return RSA_public_encrypt(size, msg, msg, m_rsa, RSA_NO_PADDING) != -1;
-#else
-    return false;
-#endif
 }
 
 bool Crypt::rsaDecrypt(unsigned char *msg, int size)
 {
-#ifndef __EMSCRIPTEN__
     if(size != RSA_size(m_rsa))
         return false;
     return RSA_private_decrypt(size, msg, msg, m_rsa, RSA_NO_PADDING) != -1;
-#else
-    return false;
-#endif
 }
 
 int Crypt::rsaGetSize()
 {
-#ifndef __EMSCRIPTEN__
     return RSA_size(m_rsa);
-#else
-    return 0;
-#endif
 }
 
-#define DELTA 0x9e3779b9
-#define MX (((z>>5^y<<2) + (y>>3^z<<4)) ^ ((sum^y) + (key[(p&3)^e] ^ z)))
-#ifdef WITH_ENCRYPTION
-void Crypt::bencrypt(uint8_t* buffer, int len, uint64_t k) {
-    uint32_t const key[4] = { (uint32_t)(k >> 32), (uint32_t)(k & 0xFFFFFFFF), 0x1B3962CA, 0x3B75AB66 };
-    uint32_t y, z, sum;
-    uint32_t *v = (uint32_t*)buffer;
-    unsigned rounds, e;
-    int p, n = (len - len % 4) / 4;
-    if (n < 2)
-        return;
-    rounds = 6 + 52 / n;
-    sum = 0;
-    z = v[n - 1];
-    do {
-        sum += DELTA;
-        e = (sum >> 2) & 3;
-        for (p = 0; p < n - 1; p++) {
-            y = v[p + 1];
-            z = v[p] += MX;
-        }
-        y = v[0];
-        z = v[n - 1] += MX;
-    } while (--rounds);
-}
-#endif
-
-void Crypt::bdecrypt(uint8_t* buffer, int len, uint64_t k) {
-    uint32_t const key[4] = { (uint32_t)(k >> 32), (uint32_t)(k & 0xFFFFFFFF), 0x1B3962CA, 0x3B75AB66 };
-    uint32_t y, z, sum;
-    uint32_t *v = (uint32_t*)buffer;
-    unsigned p, rounds, e;
-    int n = (len - len % 4) / 4;
-    if (n < 2)
-        return;
-    rounds = 6 + 52 / n;
-    sum = rounds * DELTA;
-    y = v[0];
-    do {
-        e = (sum >> 2) & 3;
-        for (p = n - 1; p > 0; p--) {
-            z = v[p - 1];
-            y = v[p] -= MX;
-        }
-        z = v[n - 1];
-        y = v[0] -= MX;
-        sum -= DELTA;
-    } while (--rounds);
-}

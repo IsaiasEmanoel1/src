@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#ifdef FW_SOUND
-
 #ifndef OGGSOUNDFILE_H
 #define OGGSOUNDFILE_H
 
@@ -48,7 +46,5 @@ private:
 
     OggVorbis_File m_vorbisFile;
 };
-
-#endif
 
 #endif

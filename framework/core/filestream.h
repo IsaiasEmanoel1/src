@@ -35,9 +35,10 @@ class FileStream : public LuaObject
 {
 public:
     FileStream(const std::string& name, PHYSFS_File *fileHandle, bool writeable);
-    FileStream(const std::string& name, std::string&& buffer);
+    FileStream(const std::string& name, const std::string& buffer);
     ~FileStream();
 
+    void cache();
     void close();
     void flush();
     void write(const void *buffer, uint count);
@@ -77,7 +78,6 @@ public:
     FileStreamPtr asFileStream() { return static_self_cast<FileStream>(); }
 
 private:
-    bool initFromGzip(const std::string& buffer);
     void checkWrite();
     void throwError(const std::string& message, bool physfsError = false);
 
@@ -88,7 +88,6 @@ private:
     bool m_caching;
 
     DataBuffer<uint8_t> m_data;
-    std::string m_strData;
 };
 
 #endif

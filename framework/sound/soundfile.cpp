@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#ifdef FW_SOUND
-
 #include "soundfile.h"
 #include "oggsoundfile.h"
 #include <framework/core/resourcemanager.h>
@@ -37,6 +35,9 @@ SoundFilePtr SoundFile::loadSoundFile(const std::string& filename)
     FileStreamPtr file = g_resources.openFile(filename);
     if(!file)
         stdext::throw_exception(stdext::format("unable to open %s", filename));
+
+    // cache file buffer to avoid lags from hard drive
+    file->cache();
 
     char magic[4];
     file->read(magic, 4);
@@ -68,5 +69,3 @@ ALenum SoundFile::getSampleFormat()
     }
     return AL_UNDETERMINED;
 }
-
-#endif

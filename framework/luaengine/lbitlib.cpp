@@ -33,15 +33,8 @@
 #define LUA_LIB
 
 extern "C" {
-#if defined(_MSC_VER) || defined(ANDROID)
-#include <luajit/lua.h>
-#include <luajit/lualib.h>
-#include <luajit/lauxlib.h>
-#else
 #include <lua.h>
-#include <lualib.h>
 #include <lauxlib.h>
-#endif
 }
 
 /* ----- adapted from lua-5.2.0 luaconf.h: ----- */
@@ -181,6 +174,11 @@ static lua_Unsigned luaL_checkunsigned (lua_State *L, int arg) {
 
 #define lbitlib_c
 #define LUA_LIB
+
+#include "lua.h"
+
+#include "lauxlib.h"
+#include "lualib.h"
 
 
 /* number of bits to consider in a number */

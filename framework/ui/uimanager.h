@@ -39,18 +39,16 @@ public:
     void resize(const Size& size);
     void inputEvent(const InputEvent& event);
 
-    void updatePressedWidget(const Fw::MouseButton button, const UIWidgetPtr& newPressedWidget, const Point& clickedPos = Point(), bool fireClicks = true);
+    void updatePressedWidget(const UIWidgetPtr& newPressedWidget, const Point& clickedPos = Point(), bool fireClicks = true);
     bool updateDraggingWidget(const UIWidgetPtr& draggingWidget, const Point& clickedPos = Point());
     void updateHoveredWidget(bool now = false);
 
     void clearStyles();
     bool importStyle(std::string file);
-    bool importStyleFromString(std::string data);
     void importStyleFromOTML(const OTMLNodePtr& styleNode);
     OTMLNodePtr getStyle(const std::string& styleName);
     std::string getStyleClass(const std::string& styleName);
 
-    UIWidgetPtr loadUIFromString(const std::string& data, const UIWidgetPtr& parent);
     UIWidgetPtr loadUI(std::string file, const UIWidgetPtr& parent);
     UIWidgetPtr displayUI(const std::string& file) { return loadUI(file, m_rootWidget); }
     UIWidgetPtr createWidget(const std::string& styleName, const UIWidgetPtr& parent);
@@ -65,7 +63,7 @@ public:
     UIWidgetPtr getKeyboardReceiver() { return m_keyboardReceiver; }
     UIWidgetPtr getDraggingWidget() { return m_draggingWidget; }
     UIWidgetPtr getHoveredWidget() { return m_hoveredWidget; }
-    UIWidgetPtr getPressedWidget() { return m_pressedWidget[Fw::MouseLeftButton]; }
+    UIWidgetPtr getPressedWidget() { return m_pressedWidget; }
     UIWidgetPtr getRootWidget() { return m_rootWidget; }
     bool isMouseGrabbed() { return m_mouseReceiver != m_rootWidget; }
     bool isKeyboardGrabbed() { return m_keyboardReceiver != m_rootWidget; }
@@ -85,13 +83,13 @@ private:
     UIWidgetPtr m_keyboardReceiver;
     UIWidgetPtr m_draggingWidget;
     UIWidgetPtr m_hoveredWidget;
-    UIWidgetPtr m_pressedWidget[Fw::MouseButtonLast + 1] = { nullptr };
+    UIWidgetPtr m_pressedWidget;
     stdext::boolean<false> m_hoverUpdateScheduled;
     stdext::boolean<false> m_drawDebugBoxes;
     std::unordered_map<std::string, OTMLNodePtr> m_styles;
     UIWidgetList m_destroyedWidgets;
     ScheduledEventPtr m_checkEvent;
-    stdext::timer m_moveTimer;
+
 };
 
 extern UIManager g_ui;

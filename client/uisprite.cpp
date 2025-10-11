@@ -33,7 +33,7 @@ UISprite::UISprite() :
 
 void UISprite::drawSelf(Fw::DrawPane drawPane)
 {
-    if(drawPane != Fw::ForegroundPane)
+    if((drawPane & Fw::ForegroundPane) == 0)
         return;
 
     // draw style components in order
@@ -46,7 +46,8 @@ void UISprite::drawSelf(Fw::DrawPane drawPane)
     drawImage(m_rect);
 
     if(m_spriteVisible && m_sprite) {
-        g_drawQueue->addTexturedRect(getPaddingRect(), m_sprite, Rect(Point(0, 0), m_sprite->getSize()), m_spriteColor);
+        g_painter->setColor(m_spriteColor);
+        g_painter->drawTexturedRect(getPaddingRect(), m_sprite);
     }
 
     drawBorder(m_rect);
@@ -54,7 +55,7 @@ void UISprite::drawSelf(Fw::DrawPane drawPane)
     drawText(m_rect);
 }
 
-void UISprite::setSpriteId(uint32 id)
+void UISprite::setSpriteId(int id)
 {
     if(!g_sprites.isLoaded())
         return;
@@ -77,7 +78,7 @@ void UISprite::onStyleApply(const std::string& styleName, const OTMLNodePtr& sty
 
     for(const OTMLNodePtr& node : styleNode->children()) {
         if(node->tag() == "sprite-id")
-            setSpriteId(node->value<uint32>());
+            setSpriteId(node->value<int>());
         else if(node->tag() == "sprite-visible")
             setSpriteVisible(node->value<bool>());
         else if(node->tag() == "sprite-color")

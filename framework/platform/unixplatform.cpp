@@ -20,15 +20,13 @@
  * THE SOFTWARE.
  */
 
-#if !defined(WIN32) && !defined(__EMSCRIPTEN__)
+#ifndef WIN32
 
-#include <framework/global.h>
 #include "platform.h"
 #include <fstream>
 #include <unistd.h>
 #include <string.h>
 #include <framework/stdext/stdext.h>
-#include <framework/core/eventdispatcher.h>
 
 #include <sys/stat.h>
 #include <execinfo.h>
@@ -119,28 +117,11 @@ ticks_t Platform::getFileModificationTime(std::string file)
     return 0;
 }
 
-bool Platform::openUrl(std::string url, bool now)
+void Platform::openUrl(std::string url)
 {
-    if(now) {
-        return system(stdext::format("xdg-open %s", url).c_str()) == 0;
-    } else {
-        g_dispatcher.scheduleEvent([url] {
-            system(stdext::format("xdg-open %s", url).c_str());
-        }, 50);
-    }
-    return true;
-}
-
-bool Platform::openDir(std::string path, bool now)
-{
-    if(now) {
-        return system(stdext::format("xdg-open %s", path).c_str()) == 0;
-    } else {
-        g_dispatcher.scheduleEvent([path] {
-            system(stdext::format("xdg-open %s", path).c_str());
-        }, 50);
-    }
-    return true;
+    if(url.find("http://") == std::string::npos)
+        url.insert(0, "http://");
+    system(stdext::format("xdg-open %s", url).c_str());
 }
 
 std::string Platform::getCPUName()
@@ -172,11 +153,6 @@ double Platform::getTotalSystemMemory()
         if(strs.size() == 2 && first == "MemTotal")
             return stdext::unsafe_cast<double>(second.substr(0, second.length() - 3)) * 1000.0;
     }
-    return 0;
-}
-
-double Platform::getMemoryUsage()
-{
     return 0;
 }
 
@@ -223,34 +199,5 @@ std::string Platform::traceback(const std::string& where, int level, int maxDept
 
     return ss.str();
 }
-
-std::vector<std::string> Platform::getMacAddresses()
-{
-    return std::vector<std::string>();
-}
-
-std::string Platform::getUserName()
-{
-    char buffer[30];
-    getlogin_r(buffer, sizeof(buffer) - 1);
-    buffer[29] = 0; // just in case
-    return std::string(buffer);
-}
-
-std::vector<std::string> Platform::getDlls()
-{
-    return std::vector<std::string>();
-}
-
-std::vector<std::string> Platform::getProcesses()
-{
-    return std::vector<std::string>();
-}
-
-std::vector<std::string> Platform::getWindows()
-{
-    return std::vector<std::string>();    
-}
-
 
 #endif

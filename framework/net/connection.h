@@ -31,14 +31,13 @@
 class Connection : public LuaObject
 {
     typedef std::function<void(const boost::system::error_code&)> ErrorCallback;
-    typedef std::function<void(uint8*, uint32)> RecvCallback;
-
-    static constexpr int32_t READ_TIMEOUT = 30;
-    static constexpr int32_t WRITE_TIMEOUT = 30;
+    typedef std::function<void(uint8*, uint16)> RecvCallback;
 
     enum {
-        SEND_BUFFER_SIZE = 327680,
-        RECV_BUFFER_SIZE = 327680
+        READ_TIMEOUT = 30,
+        WRITE_TIMEOUT = 30,
+        SEND_BUFFER_SIZE = 65536,
+        RECV_BUFFER_SIZE = 65536
     };
 
 public:
@@ -52,7 +51,7 @@ public:
     void close();
 
     void write(uint8* buffer, size_t size);
-    void read(uint32 bytes, const RecvCallback& callback);
+    void read(uint16 bytes, const RecvCallback& callback);
     void read_until(const std::string& what, const RecvCallback& callback);
     void read_some(const RecvCallback& callback);
 
@@ -81,9 +80,9 @@ protected:
     ErrorCallback m_errorCallback;
     RecvCallback m_recvCallback;
 
-    asio::steady_timer m_readTimer;
-    asio::steady_timer m_writeTimer;
-    asio::steady_timer m_delayedWriteTimer;
+    asio::deadline_timer m_readTimer;
+    asio::deadline_timer m_writeTimer;
+    asio::deadline_timer m_delayedWriteTimer;
     asio::ip::tcp::resolver m_resolver;
     asio::ip::tcp::socket m_socket;
 

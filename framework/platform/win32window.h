@@ -32,11 +32,14 @@
 #include <EGL/egl.h>
 #endif
 
+#ifdef DIRECTX
+#include <d3d9.h>
+#endif
+
 struct WindowProcProxy;
 
 class WIN32Window : public PlatformWindow
 {
-    void internalSetupTimerAccuracy();
     void internalCreateWindow();
     void internalCreateGLContext();
     void internalDestroyGLContext();
@@ -46,7 +49,6 @@ class WIN32Window : public PlatformWindow
     bool isExtensionSupported(const char *ext);
 
     LRESULT windowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    LRESULT dispatcherWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     friend struct WindowProcProxy;
 
     Fw::Key retranslateVirtualKey(WPARAM wParam, LPARAM lParam);
@@ -61,7 +63,6 @@ public:
     void resize(const Size& size);
     void show();
     void hide();
-    void minimize();
     void maximize();
     void poll();
     void swapBuffers();
@@ -83,8 +84,6 @@ public:
     std::string getClipboardText();
     std::string getPlatformType();
 
-    void flash() override;
-
 protected:
     int internalLoadMouseCursor(const ImagePtr& image, const Point& hotSpot);
 
@@ -99,8 +98,12 @@ private:
     HDC m_deviceContext;
     HCURSOR m_cursor;
     HCURSOR m_defaultCursor;
-    UINT m_timerRes = 0;
     bool m_hidden;
+
+#ifdef DIRECTX
+    LPDIRECT3D9 m_d3d;    // the pointer to our Direct3D interface
+    LPDIRECT3DDEVICE9 m_d3ddev;    // the pointer to the device class
+#endif
 
 #ifdef OPENGL_ES
     EGLConfig m_eglConfig;

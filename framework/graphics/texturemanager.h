@@ -31,19 +31,22 @@ class TextureManager
 public:
     void init();
     void terminate();
+    void poll();
 
     void clearCache();
-    void reload();
+    void liveReload();
 
     void preload(const std::string& fileName) { getTexture(fileName); }
     TexturePtr getTexture(const std::string& fileName);
-    TexturePtr loadTexture(std::stringstream& file, const std::string& source);
+    const TexturePtr& getEmptyTexture() { return m_emptyTexture; }
 
 private:
+    TexturePtr loadTexture(std::stringstream& file);
+
     std::unordered_map<std::string, TexturePtr> m_textures;
     std::vector<AnimatedTexturePtr> m_animatedTextures;
+    TexturePtr m_emptyTexture;
     ScheduledEventPtr m_liveReloadEvent;
-    std::list<uint> m_texturesToRelease;
 };
 
 extern TextureManager g_textures;

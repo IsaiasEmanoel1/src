@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#ifdef FW_SOUND
-
 #include "oggsoundfile.h"
 
 OggSoundFile::OggSoundFile(const FileStreamPtr& fileStream) : SoundFile(fileStream)
@@ -113,5 +111,3 @@ long OggSoundFile::cb_tell(void* source)
     FileStream *file = static_cast<FileStream*>(source);
     return file->tell();
 }
-
-#endif

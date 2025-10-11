@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#include <framework/global.h>
-
 #include "string.h"
 #include "format.h"
 #include <boost/algorithm/string.hpp>
@@ -36,8 +34,6 @@ namespace stdext {
 
 std::string resolve_path(const std::string& filePath, std::string sourcePath)
 {
-    if (filePath.empty())
-        return "";
     if(stdext::starts_with(filePath, "/"))
         return filePath;
     if(!stdext::ends_with(sourcePath, "/")) {
@@ -54,33 +50,16 @@ std::string date_time_string()
     char date[32];
     std::time_t tnow;
     std::time(&tnow);
-    std::tm* ts = std::localtime(&tnow);
+    std::tm *ts = std::localtime(&tnow);
     std::strftime(date, 32, "%b %d %Y %H:%M:%S", ts);
     return std::string(date);
-}
-
-std::string timestamp_to_date(time_t tnow)
-{
-    char date[32];
-    std::tm* ts = std::localtime(&tnow);
-    std::strftime(date, 32, "%b %d %Y %H:%M:%S", ts);
-    return std::string(date);
-}
-
-std::string dec_to_hex(uint32_t num)
-{
-    std::string str;
-    std::ostringstream o;
-    o << std::setw(8) << std::setfill('0') << std::hex << num;
-    str = o.str();
-    return str;
 }
 
 std::string dec_to_hex(uint64_t num)
 {
     std::string str;
     std::ostringstream o;
-    o << std::setw(16) << std::setfill('0') << std::hex << num;
+    o << std::hex << num;
     str = o.str();
     return str;
 }
@@ -208,8 +187,8 @@ std::string latin1_to_utf8(const std::string& src)
 std::wstring utf8_to_utf16(const std::string& src)
 {
     std::wstring res;
-    wchar_t out[65536];
-    if(MultiByteToWideChar(CP_UTF8, 0, src.c_str(), -1, out, 65536))
+    wchar_t out[4096];
+    if(MultiByteToWideChar(CP_UTF8, 0, src.c_str(), -1, out, 4096))
         res = out;
     return res;
 }
@@ -217,8 +196,8 @@ std::wstring utf8_to_utf16(const std::string& src)
 std::string utf16_to_utf8(const std::wstring& src)
 {
     std::string res;
-    char out[65536];
-    if(WideCharToMultiByte(CP_UTF8, 0, src.c_str(), -1, out, 65536, NULL, NULL))
+    char out[4096];
+    if(WideCharToMultiByte(CP_UTF8, 0, src.c_str(), -1, out, 4096, NULL, NULL))
         res = out;
     return res;
 }
