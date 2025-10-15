@@ -21,6 +21,8 @@
  */
 
 #include "uiitem.h"
+#include "spritemanager.h"
+#include "game.h"
 #include <framework/otml/otml.h>
 #include <framework/graphics/graphics.h>
 #include <framework/graphics/fontmanager.h>
@@ -32,9 +34,8 @@ UIItem::UIItem()
 
 void UIItem::drawSelf(Fw::DrawPane drawPane)
 {
-    if((drawPane & Fw::ForegroundPane) == 0)
+    if(drawPane != Fw::ForegroundPane)
         return;
-
     // draw style components in order
     if(m_backgroundColor.aF() > Fw::MIN_ALPHA) {
         Rect backgroundDestRect = m_rect;
@@ -46,26 +47,21 @@ void UIItem::drawSelf(Fw::DrawPane drawPane)
 
     if(m_itemVisible && m_item) {
         Rect drawRect = getPaddingRect();
-        Point dest = drawRect.bottomRight() + Point(1,1);
 
-        int exactSize = std::max<int>(32, m_item->getExactSize());
+        int exactSize = std::max<int>(g_sprites.spriteSize(), m_item->getExactSize());
         if(exactSize == 0)
             return;
 
-        float scaleFactor = std::min<float>(drawRect.width() / (float)exactSize, drawRect.height() / (float)exactSize);
-        dest += (m_item->getDisplacement() - Point(32,32)) * scaleFactor;
+        m_item->setColor(m_color);
+        m_item->draw(drawRect);
 
-        g_painter->setColor(m_color);
-        m_item->draw(dest, scaleFactor, true);
-
-        if(m_font && (m_item->isStackable() || m_item->isChargeable()) && m_item->getCountOrSubType() > 1) {
-            std::string count = stdext::to_string(m_item->getCountOrSubType());
-            g_painter->setColor(Color(231, 231, 231));
-            m_font->drawText(count, Rect(m_rect.topLeft(), m_rect.bottomRight() - Point(3, 0)), Fw::AlignBottomRight);
+        if(m_font && m_showCount && (m_item->isStackable() || m_item->isChargeable()) && m_item->getCountOrSubType() > 1) {
+            g_drawQueue->addText(m_font, m_countText, Rect(m_rect.topLeft(), m_rect.bottomRight() - Point(3, 0)), Fw::AlignBottomRight, Color(231, 231, 231));
         }
 
-        if(m_showId)
-            m_font->drawText(stdext::to_string(m_item->getServerId()), m_rect, Fw::AlignBottomRight);
+        if (m_showId) {
+            g_drawQueue->addText(m_font, std::to_string(m_item->getServerId()), m_rect, Fw::AlignBottomRight, Color(231, 231, 231));
+        }
     }
 
     drawBorder(m_rect);
@@ -75,14 +71,55 @@ void UIItem::drawSelf(Fw::DrawPane drawPane)
 
 void UIItem::setItemId(int id)
 {
-    if(!m_item && id != 0)
+    if (!m_item && id != 0)
         m_item = Item::create(id);
     else {
         // remove item
-        if(id == 0)
+        if (id == 0)
             m_item = nullptr;
         else
             m_item->setId(id);
+    }
+
+    if (m_item)
+        m_item->setShader(m_shader);
+
+    callLuaField("onItemChange");
+}
+
+void UIItem::setItemCount(int count)
+{
+    if (m_item) {
+        m_item->setCount(count);
+        callLuaField("onItemChange");
+        cacheCountText();
+    }
+}
+void UIItem::setItemSubType(int subType)
+{
+    if (m_item) {
+        m_item->setSubType(subType);
+        callLuaField("onItemChange");
+    }
+}
+
+void UIItem::setItem(const ItemPtr& item)
+{
+    m_item = item;
+    if (m_item) {
+        m_item->setShader(m_shader);
+        cacheCountText();
+        callLuaField("onItemChange");
+    }
+}
+
+void UIItem::setItemShader(const std::string& str)
+{
+    m_shader = str;
+
+    if (m_item) {
+        m_item->setShader(m_shader);
+        callLuaField("onItemChange");
     }
 }
 
@@ -101,5 +138,18 @@ void UIItem::onStyleApply(const std::string& styleName, const OTMLNodePtr& style
             setVirtual(node->value<bool>());
         else if(node->tag() == "show-id")
             m_showId = node->value<bool>();
+        else if(node->tag() == "shader")
+            setItemShader(node->value());
     }
+}
+
+void UIItem::cacheCountText()
+{
+    int count = m_item->getCountOrSubType();
+    if (!g_game.getFeature(Otc::GameCountU16) || count < 1000) {
+        m_countText = std::to_string(count);
+        return;
+    }
+
+    m_countText = stdext::format("%.0fk", count / 1000.0);
 }

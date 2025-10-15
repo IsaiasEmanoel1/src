@@ -30,8 +30,17 @@
 #include <framework/otml/declarations.h>
 #include <framework/graphics/texture.h>
 #include <framework/graphics/coordsbuffer.h>
+#include <framework/graphics/drawqueue.h>
 #include <framework/luaengine/luaobject.h>
 #include <framework/net/server.h>
+
+enum NewDrawType : uint8 {
+    NewDrawNormal = 0,
+    NewDrawMount = 5,
+    NewDrawOutfit = 6,
+    NewDrawOutfitLayers = 7,
+    NewDrawMissle = 10
+};
 
 enum FrameGroupType : uint8 {
     FrameGroupDefault = 0,
@@ -87,6 +96,7 @@ enum ThingAttr : uint8 {
     ThingAttrWrapable         = 35,
     ThingAttrUnwrapable       = 36,
     ThingAttrTopEffect        = 37,
+    ThingAttrBones            = 38,
 
     // additional
     ThingAttrOpacity          = 100,
@@ -99,10 +109,7 @@ enum ThingAttr : uint8 {
 };
 
 enum SpriteMask {
-    SpriteMaskRed = 1,
-    SpriteMaskGreen,
-    SpriteMaskBlue,
-    SpriteMaskYellow
+    SpriteMask = 1,
 };
 
 struct MarketData {
@@ -114,10 +121,49 @@ struct MarketData {
     uint16 tradeAs;
 };
 
+struct StoreCategory {
+    std::string name;
+    std::string description;
+    int state;
+    std::string icon;
+    std::string parent;
+};
+
+struct StoreOffer {
+    int id;
+    std::string name;
+    std::string description;
+    int price;
+    int state;
+    std::string icon;
+};
+
+struct Imbuement {
+    int id;
+    std::string name;
+    std::string description;
+    std::string group;
+    int imageId;
+    int duration;
+    bool premiumOnly;
+    std::vector<std::pair<ItemPtr, std::string>> sources;
+    int cost;
+    int successRate;
+    int protectionCost;
+};
+
 struct Light {
-    Light() { intensity = 0; color = 215; }
-    uint8 intensity;
-    uint8 color;
+    Point pos;
+    uint8_t color = 215;
+    uint8_t intensity = 0;
+};
+
+struct DrawOutfitParams {
+    Rect dest;
+    TexturePtr texture;
+    Rect src;
+    Point offset;
+    Color color;
 };
 
 class ThingType : public LuaObject
@@ -127,16 +173,25 @@ public:
 
     void unserialize(uint16 clientId, ThingCategory category, const FileStreamPtr& fin);
     void unserializeOtml(const OTMLNodePtr& node);
+    void unload();
 
     void serialize(const FileStreamPtr& fin);
     void exportImage(std::string fileName);
+    void replaceSprites(std::map<uint32_t, ImagePtr>& replacements, std::string fileName);
 
-    void draw(const Point& dest, float scaleFactor, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, LightView *lightView = nullptr);
+    DrawQueueItem* draw(const Point& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, Color color = Color::white, LightView* lightView = nullptr);
+    DrawQueueItem* draw(const Rect& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, Color color = Color::white);
+    std::shared_ptr<DrawOutfitParams> drawOutfit(const Point& dest, int maskLayer, int xPattern, int yPattern, int zPattern, int animationPhase, Color color = Color::white, LightView* lightView = nullptr);
+    Rect getDrawSize(const Point& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase);
+    void drawWithShader(const Point& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, const std::string& shader, Color color = Color::white, LightView* lightView = nullptr);
+    void drawWithShader(const Rect& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, const std::string& shader, Color color = Color::white);
 
     uint16 getId() { return m_id; }
     ThingCategory getCategory() { return m_category; }
     bool isNull() { return m_null; }
     bool hasAttr(ThingAttr attr) { return m_attribs.has(attr); }
+    bool isLoaded() { return m_loaded; }
+    ticks_t getLastUsage() { return m_lastUsage; }
 
     Size getSize() { return m_size; }
     int getWidth() { return m_size.width(); }
@@ -149,10 +204,12 @@ public:
     int getNumPatternZ() { return m_numPatternZ; }
     int getAnimationPhases() { return m_animationPhases; }
     AnimatorPtr getAnimator() { return m_animator; }
+    AnimatorPtr getIdleAnimator() { return m_idleAnimator; }
     Point getDisplacement() { return m_displacement; }
     int getDisplacementX() { return getDisplacement().x; }
     int getDisplacementY() { return getDisplacement().y; }
     int getElevation() { return m_elevation; }
+    const Point& getBones(int direction) { return m_bones[direction]; }
 
     int getGroundSpeed() { return m_attribs.get<uint16>(ThingAttrGround); }
     int getMaxTextLength() { return m_attribs.has(ThingAttrWritableOnce) ? m_attribs.get<uint16>(ThingAttrWritableOnce) : m_attribs.get<uint16>(ThingAttrWritable); }
@@ -200,6 +257,7 @@ public:
     bool isWrapable() { return m_attribs.has(ThingAttrWrapable); }
     bool isUnwrapable() { return m_attribs.has(ThingAttrUnwrapable); }
     bool isTopEffect() { return m_attribs.has(ThingAttrTopEffect); }
+    bool hasBones() { return m_attribs.has(ThingAttrBones); }
 
     std::vector<int> getSprites() { return m_spritesIndex; }
 
@@ -222,6 +280,8 @@ private:
     Size m_size;
     Point m_displacement;
     AnimatorPtr m_animator;
+    AnimatorPtr m_idleAnimator;
+    std::vector<Point> m_bones;
     int m_animationPhases;
     int m_exactSize;
     int m_realSize;
@@ -236,6 +296,28 @@ private:
     std::vector<std::vector<Rect>> m_texturesFramesRects;
     std::vector<std::vector<Rect>> m_texturesFramesOriginRects;
     std::vector<std::vector<Point>> m_texturesFramesOffsets;
+
+    bool m_loaded = false;
+    time_t m_lastUsage;
+};
+
+struct DrawQueueItemThingWithShader : public DrawQueueItemTexturedRect {
+    DrawQueueItemThingWithShader(const Rect& rect, const TexturePtr& texture, const Rect& src, const Point& offset, const Point& center, int32_t colors, const std::string& shader) :
+        DrawQueueItemTexturedRect(rect, texture, src, Color::white), m_offset(offset), m_center(center), m_colors(colors), m_shader(shader)
+    {};
+
+    void draw() override;
+    void draw(const Point& pos) override
+    {}
+    bool cache() override
+    {
+        return false;
+    }
+
+    Point m_offset;
+    Point m_center;
+    int32_t m_colors;
+    std::string m_shader;
 };
 
 #endif

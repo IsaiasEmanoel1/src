@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2010-2017 OTClient <https://github.com/edubart/otclient>
  *

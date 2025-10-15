@@ -23,6 +23,7 @@
 #ifndef LUAOBJECT_H
 #define LUAOBJECT_H
 
+#include <framework/util/stats.h>
 #include "declarations.h"
 
 /// LuaObject, all script-able classes have it as base
@@ -150,22 +151,27 @@ connect(const LuaObjectPtr& obj, const std::string& field, const Lambda& f, bool
 
 template<typename... T>
 int LuaObject::luaCallLuaField(const std::string& field, const T&... args) {
+    AutoStat s(STATS_LUA, getClassName() + ":" + field);
+
     // note that the field must be retrieved from this object lua value
     // to force using the __index metamethod of it's metatable
     // so cannot use LuaObject::getField here
     // push field
+    //AutoStat s(STATS_LUA, field);
     g_lua.pushObject(asLuaObject());
     g_lua.getField(field);
 
+    int ret = 0;
     if(!g_lua.isNil()) {
         // the first argument is always this object (self)
         g_lua.insert(-2);
         int numArgs = g_lua.polymorphicPush(args...);
-        return g_lua.signalCall(1 + numArgs);
+        ret = g_lua.signalCall(1 + numArgs);
     } else {
         g_lua.pop(2);
     }
-    return 0;
+
+    return ret;
 }
 
 template<typename R, typename... T>
@@ -173,7 +179,7 @@ R LuaObject::callLuaField(const std::string& field, const T&... args) {
     R result;
     int rets = luaCallLuaField(field, args...);
     if(rets > 0) {
-        assert(rets == 1);
+        VALIDATE(rets == 1);
         result = g_lua.polymorphicPop<R>();
     } else
         result = R();

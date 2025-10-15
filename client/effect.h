@@ -35,24 +35,29 @@ class Effect : public Thing
     };
 
 public:
-    void drawEffect(const Point& dest, float scaleFactor, bool animate, int offsetX = 0, int offsetY = 0, LightView *lightView = nullptr);
+    void draw(const Point& dest, bool animate = true, LightView* lightView = nullptr) override {}
+    void draw(const Point& dest, int offsetX = 0, int offsetY = 0, bool animate = true, LightView* lightView = nullptr);
+    
+    void setId(uint32 id) override;
+    uint32 getId() override { return m_id; }
 
-    void setId(uint32 id);
-    uint32 getId() { return m_id; }
+    void setPersistent(bool persistent) { m_isPersistent = persistent; } // <-- ADICIONE ESTA LINHA
+    bool isPersistent() const { return m_isPersistent; }
 
     EffectPtr asEffect() { return static_self_cast<Effect>(); }
-    bool isEffect() { return true; }
+    bool isEffect() override { return true; }
 
-    const ThingTypePtr& getThingType();
-    ThingType *rawGetThingType();
+    const ThingTypePtr& getThingType() override;
+    ThingType *rawGetThingType() override;
 
 protected:
-    void onAppear();
+    void onAppear() override;
 
 private:
-    Timer m_animationTimer;
-    uint m_phaseDuration;
     uint16 m_id;
+    Timer m_animationTimer;
+    int m_animationPhase = 0;
+    bool m_isPersistent = false;
 };
 
 #endif

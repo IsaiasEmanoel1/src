@@ -20,6 +20,8 @@
  * THE SOFTWARE.
  */
 
+#ifdef FW_SOUND
+
 #include "soundchannel.h"
 #include "streamsoundsource.h"
 #include "soundmanager.h"
@@ -52,10 +54,13 @@ void SoundChannel::stop(float fadetime)
 
 void SoundChannel::enqueue(const std::string& filename, float fadetime, float gain)
 {
+    static std::random_device rd;
+    static std::mt19937 g(rd());
+    
     if(gain == 0)
         gain = 1.0f;
     m_queue.push_back(QueueEntry{g_sounds.resolveSoundFile(filename), fadetime, gain});
-    std::random_shuffle(m_queue.begin(), m_queue.end());
+    std::shuffle(m_queue.begin(), m_queue.end(), g);
     //update();
 }
 
@@ -95,3 +100,5 @@ void SoundChannel::setGain(float gain)
         m_currentSource->setGain(gain);
     m_gain = gain;
 }
+
+#endif

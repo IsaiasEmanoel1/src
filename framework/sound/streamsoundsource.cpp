@@ -20,6 +20,8 @@
  * THE SOFTWARE.
  */
 
+#ifdef FW_SOUND
+
 #include "streamsoundsource.h"
 #include "soundbuffer.h"
 #include "soundfile.h"
@@ -159,7 +161,7 @@ bool StreamSoundSource::fillBufferAndQueue(uint buffer)
     if(bytesRead > 0) {
         if(m_downMix != NoDownMix) {
             if(format == AL_FORMAT_STEREO16) {
-                assert(bytesRead % 2 == 0);
+                VALIDATE(bytesRead % 2 == 0);
                 bytesRead /= 2;
                 uint16_t *data = (uint16_t*)bufferData.data();
                 for(int i=0;i<bytesRead/2;i++)
@@ -187,3 +189,5 @@ void StreamSoundSource::downMix(StreamSoundSource::DownMix downMix)
 {
     m_downMix = downMix;
 }
+
+#endif

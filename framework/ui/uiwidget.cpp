@@ -32,9 +32,24 @@
 #include <framework/graphics/texturemanager.h>
 #include <framework/core/application.h>
 #include <framework/luaengine/luainterface.h>
+#include <framework/util/stats.h>
+#include <framework/util/extras.h>
+#include <framework/input/mouse.h>
 
 UIWidget::UIWidget()
 {
+    // source for stats
+    m_source = g_lua.getSource(2);
+    // find correct source
+    int level = 3;
+    while((m_source.find("corelib") != std::string::npos || m_source.find("gamelib") != std::string::npos 
+           || m_source.find("game_bot/functions/ui") != std::string::npos || m_source.find("[C]") != std::string::npos) && level < 8) {
+        std::string tmp_src = g_lua.getSource(level);
+        if (tmp_src.length() <= 3) break;
+        m_source = tmp_src;
+        level += 1;
+    }
+    
     m_lastFocusReason = Fw::ActiveFocusReason;
     m_states = Fw::DefaultState;
     m_autoFocusPolicy = Fw::AutoFocusLast;
@@ -44,50 +59,48 @@ UIWidget::UIWidget()
     initBaseStyle();
     initText();
     initImage();
+
+    g_stats.addWidget(this);
 }
 
 UIWidget::~UIWidget()
 {
-#ifndef NDEBUG
-    assert(!g_app.isTerminated());
+    VALIDATE(!g_app.isTerminated());
     if(!m_destroyed)
         g_logger.warning(stdext::format("widget '%s' was not explicitly destroyed", m_id));
-#endif
+
+    g_stats.removeWidget(this);
 }
 
 void UIWidget::draw(const Rect& visibleRect, Fw::DrawPane drawPane)
 {
-    Rect oldClipRect;
-    if(m_clipping) {
-        oldClipRect = g_painter->getClipRect();
-        g_painter->setClipRect(visibleRect);
-    }
-
-    if(m_rotation != 0.0f) {
-        g_painter->pushTransformMatrix();
-        g_painter->rotate(m_rect.center(), m_rotation * (Fw::pi / 180.0));
-    }
+    size_t drawQueueStart = g_drawQueue->size();
 
     drawSelf(drawPane);
-
-    if(m_children.size() > 0) {
-        if(m_clipping)
-            g_painter->setClipRect(visibleRect.intersection(getPaddingRect()));
-
-        drawChildren(visibleRect, drawPane);
+    if (m_clipping) {
+        g_drawQueue->setClip(drawQueueStart, visibleRect);
     }
 
-    if(m_rotation != 0.0f)
-        g_painter->popTransformMatrix();
+    if(m_children.size() > 0) {
+        size_t drawQueueChildStart = g_drawQueue->size();
+        drawChildren(visibleRect, drawPane);
+        if (m_clipping) {
+            g_drawQueue->setClip(drawQueueChildStart, visibleRect.intersection(getPaddingRect()));
+        }
+    }
 
-    if(m_clipping) {
-        g_painter->setClipRect(oldClipRect);
+    if (getOpacity() < 0.99f) {
+        g_drawQueue->setOpacity(drawQueueStart, getOpacity());
+    }
+
+    if (m_rotation < -0.1f || m_rotation > 0.1f) {
+        g_drawQueue->setRotation(drawQueueStart, m_rect.center(), m_rotation * (Fw::pi / 180.0));
     }
 }
 
 void UIWidget::drawSelf(Fw::DrawPane drawPane)
 {
-    if((drawPane & Fw::ForegroundPane) == 0)
+    if(drawPane != Fw::ForegroundPane)
         return;
 
     // draw style components in order
@@ -107,6 +120,9 @@ void UIWidget::drawChildren(const Rect& visibleRect, Fw::DrawPane drawPane)
 {
     // draw children
     for(const UIWidgetPtr& child : m_children) {
+        if (!child->isAutoDraw())
+            continue;
+
         // render only visible children with a valid rect inside parent rect
         if(!child->isExplicitlyVisible() || !child->getRect().isValid() || child->getOpacity() < Fw::MIN_ALPHA)
             continue;
@@ -115,23 +131,15 @@ void UIWidget::drawChildren(const Rect& visibleRect, Fw::DrawPane drawPane)
         if(!childVisibleRect.isValid())
             continue;
 
-        // store current graphics opacity
-        float oldOpacity = g_painter->getOpacity();
-
-        // decrease to self opacity
-        if(child->getOpacity() < oldOpacity)
-            g_painter->setOpacity(child->getOpacity());
-
         child->draw(childVisibleRect, drawPane);
 
         // debug draw box
-        if(g_ui.isDrawingDebugBoxes() && drawPane & Fw::ForegroundPane) {
-            g_painter->setColor(Color::green);
-            g_painter->drawBoundingRect(child->getRect());
+        if(g_ui.isDrawingDebugBoxes() && drawPane == Fw::ForegroundPane) {
+            g_drawQueue->addBoundingRect(child->getRect(), 1, Color::green);
+            if (m_font) {
+                m_font->drawText(child->getId(), child->getPosition() + Point(2, 0), Color::red);
+            }
         }
-        //g_fonts.getDefaultFont()->renderText(child->getId(), child->getPosition() + Point(2, 0), Color::red);
-
-        g_painter->setOpacity(oldOpacity);
     }
 }
 
@@ -157,6 +165,15 @@ void UIWidget::addChild(const UIWidgetPtr& child)
     m_children.push_back(child);
     child->setParent(static_self_cast<UIWidget>());
 
+    // otml extension
+    std::string widgetId = child->getId();
+    if (!widgetId.empty()) {
+        if (!hasLuaField(widgetId)) {
+            setLuaField(widgetId, child);
+            m_childrenShortcuts[child] = widgetId;
+        }
+    }
+
     // create default layout
     if(!m_layout)
         m_layout = UIAnchorLayoutPtr(new UIAnchorLayout(static_self_cast<UIWidget>()));
@@ -174,6 +191,29 @@ void UIWidget::addChild(const UIWidgetPtr& child)
     }
 
     g_ui.onWidgetAppear(child);
+}
+
+void UIWidget::onChildIdChange(const UIWidgetPtr& child)
+{
+    if (!hasChild(child)) {
+        g_logger.traceWarning("onChildIdChange: invalid child");
+        return;
+    }
+
+    // update shortcut
+    auto shortcut = m_childrenShortcuts.find(child);
+    if (shortcut != m_childrenShortcuts.end()) {
+        setLuaField(shortcut->second, nullptr);
+        m_childrenShortcuts.erase(shortcut);
+    }
+
+    std::string widgetId = child->getId();
+    if (!widgetId.empty()) {
+        if (!hasLuaField(widgetId)) {
+            setLuaField(widgetId, child);
+            m_childrenShortcuts[child] = widgetId;
+        }
+    }
 }
 
 void UIWidget::insertChild(int index, const UIWidgetPtr& child)
@@ -231,8 +271,14 @@ void UIWidget::removeChild(UIWidgetPtr child)
         auto it = std::find(m_children.begin(), m_children.end(), child);
         m_children.erase(it);
 
+        auto shortcut = m_childrenShortcuts.find(child);
+        if (shortcut != m_childrenShortcuts.end()) {
+            setLuaField(shortcut->second, nullptr);
+            m_childrenShortcuts.erase(shortcut);
+        }
+
         // reset child parent
-        assert(child->getParent() == static_self_cast<UIWidget>());
+        VALIDATE(child->getParent() == static_self_cast<UIWidget>());
         child->setParent(nullptr);
 
         m_layout->removeWidget(child);
@@ -430,7 +476,27 @@ void UIWidget::moveChildToIndex(const UIWidgetPtr& child, int index)
         return;
     }
     m_children.erase(it);
-    m_children.insert(m_children.begin() + index - 1, child);
+    if (index >= (int)m_children.size() + 1) {
+        m_children.push_back(child);
+    } else {
+        m_children.insert(m_children.begin() + index - 1, child);
+    }
+
+    updateChildrenIndexStates();
+    updateLayout();
+}
+
+void UIWidget::reorderChildren(const std::vector<UIWidgetPtr>& childrens) {
+    if (m_children.size() != childrens.size()) {
+        g_logger.error("Invalid parameter for reorderChildren");
+        return;
+    }
+
+    m_children.clear();
+    for (size_t i = 0; i < childrens.size(); ++i) {
+        m_children.push_back(childrens[i]);
+    }
+
     updateChildrenIndexStates();
     updateLayout();
 }
@@ -490,7 +556,7 @@ void UIWidget::unlockChild(const UIWidgetPtr& child)
     UIWidgetPtr lockedChild;
     if(m_lockedChildren.size() > 0) {
         lockedChild = m_lockedChildren.front();
-        assert(hasChild(lockedChild));
+        VALIDATE(hasChild(lockedChild));
     }
 
     for(const UIWidgetPtr& otherChild : m_children) {
@@ -538,7 +604,7 @@ void UIWidget::applyStyle(const OTMLNodePtr& styleNode)
             if(node->tag()[0] == '!') {
                 std::string tag = node->tag().substr(1);
                 std::string code = stdext::format("tostring(%s)", node->value());
-                std::string origin = "@" + node->source() + ": [" + node->tag() + "]";
+                std::string origin = std::string("@") + node->source() + ": [" + node->tag() + "]";
                 g_lua.evaluateExpression(code, origin);
                 std::string value = g_lua.popString();
 
@@ -749,6 +815,10 @@ void UIWidget::bindRectToParent()
 
 void UIWidget::internalDestroy()
 {
+    if (!getText().empty()) {
+        setText("", true);
+    }
+
     m_destroyed = true;
     m_visible = false;
     m_enabled = false;
@@ -792,9 +862,14 @@ void UIWidget::destroyChildren()
     if(layout)
         layout->disableUpdates();
 
+    for(auto& field : m_childrenShortcuts) {
+        setLuaField(field.second, nullptr);
+    }
+    m_childrenShortcuts.clear();
+
     m_focusedChild = nullptr;
     m_lockedChildren.clear();
-    while(!m_children.empty()) {
+    while (!m_children.empty()) {
         UIWidgetPtr child = m_children.front();
         m_children.pop_front();
         child->setParent(nullptr);
@@ -811,6 +886,9 @@ void UIWidget::setId(const std::string& id)
     if(id != m_id) {
         m_id = id;
         callLuaField("onIdChange", id);
+        if (m_parent) {
+            m_parent->onChildIdChange(static_self_cast<UIWidget>());
+        }
     }
 }
 
@@ -833,6 +911,7 @@ void UIWidget::setParent(const UIWidgetPtr& parent)
     // set new parent
     if(parent) {
         m_parent = parent;
+        m_parentId = parent->getId();
 
         // add to parent if needed
         if(!parent->hasChild(self))
@@ -935,12 +1014,12 @@ void UIWidget::setEnabled(bool enabled)
 
 void UIWidget::setVisible(bool visible)
 {
-    if(m_visible != visible) {
+    if (m_visible != visible) {
         m_visible = visible;
 
         // hiding a widget make it lose focus
-        if(!visible && isFocused()) {
-            if(UIWidgetPtr parent = getParent())
+        if (!visible && isFocused()) {
+            if (UIWidgetPtr parent = getParent())
                 parent->focusPreviousChild(Fw::ActiveFocusReason, true);
         }
 
@@ -951,11 +1030,16 @@ void UIWidget::setVisible(bool visible)
         updateState(Fw::HiddenState);
 
         // visibility can change the current hovered widget
-        if(visible)
+        if (visible)
             g_ui.onWidgetAppear(static_self_cast<UIWidget>());
         else
             g_ui.onWidgetDisappear(static_self_cast<UIWidget>());
     }
+}
+
+void UIWidget::setAutoDraw(bool value)
+{
+    m_autoDraw = value;
 }
 
 void UIWidget::setOn(bool on)
@@ -1354,6 +1438,11 @@ void UIWidget::updateState(Fw::WidgetState state)
             updateChildren = newStatus != oldStatus;
             break;
         }
+        case Fw::MobileState:
+        {
+            newStatus = g_app.isMobile();
+            break;
+        }
         default:
             return;
     }
@@ -1470,8 +1559,6 @@ void UIWidget::onStyleApply(const std::string& styleName, const OTMLNodePtr& sty
     parseBaseStyle(styleNode);
     parseImageStyle(styleNode);
     parseTextStyle(styleNode);
-
-    g_app.repaint();
 }
 
 void UIWidget::onGeometryChange(const Rect& oldRect, const Rect& newRect)
@@ -1486,8 +1573,6 @@ void UIWidget::onGeometryChange(const Rect& oldRect, const Rect& newRect)
     }
 
     callLuaField("onGeometryChange", oldRect, newRect);
-
-    g_app.repaint();
 }
 
 void UIWidget::onLayoutUpdate()
@@ -1507,6 +1592,12 @@ void UIWidget::onChildFocusChange(const UIWidgetPtr& focusedChild, const UIWidge
 
 void UIWidget::onHoverChange(bool hovered)
 {
+    if (m_changeCursorImage) {
+        if (hovered && !g_mouse.isCursorChanged())
+            g_mouse.pushCursor(m_cursor);
+        else
+            g_mouse.popCursor(m_cursor);
+    }
     callLuaField("onHoverChange", hovered);
 }
 
@@ -1569,11 +1660,15 @@ bool UIWidget::onMousePress(const Point& mousePos, Fw::MouseButton button)
         m_lastClickPosition = mousePos;
     }
 
+    if (button == Fw::MouseTouch || button == Fw::MouseTouch2 || button == Fw::MouseTouch3)
+        return callLuaField<bool>("onTouchPress", mousePos, button);
     return callLuaField<bool>("onMousePress", mousePos, button);
 }
 
 bool UIWidget::onMouseRelease(const Point& mousePos, Fw::MouseButton button)
 {
+    if (button == Fw::MouseTouch || button == Fw::MouseTouch2 || button == Fw::MouseTouch3)
+        return callLuaField<bool>("onTouchRelease", mousePos, button);
     return callLuaField<bool>("onMouseRelease", mousePos, button);
 }
 
@@ -1712,12 +1807,29 @@ bool UIWidget::propagateOnMouseEvent(const Point& mousePos, UIWidgetList& widget
 
 bool UIWidget::propagateOnMouseMove(const Point& mousePos, const Point& mouseMoved, UIWidgetList& widgetList)
 {
-    for(auto it = m_children.begin(); it != m_children.end(); ++it) {
-        const UIWidgetPtr& child = *it;
-        if(child->isExplicitlyVisible() && child->isExplicitlyEnabled())
-            child->propagateOnMouseMove(mousePos, mouseMoved, widgetList);
+    if (containsPaddingPoint(mousePos)) {
+        for (auto it = m_children.begin(); it != m_children.end(); ++it) {
+            const UIWidgetPtr& child = *it;
+            if (child->isExplicitlyVisible() && child->isExplicitlyEnabled() && child->containsPoint(mousePos))
+                child->propagateOnMouseMove(mousePos, mouseMoved, widgetList);
+
+            widgetList.push_back(static_self_cast<UIWidget>());
+        }
     }
 
-    widgetList.push_back(static_self_cast<UIWidget>());
     return true;
+}
+
+void UIWidget::setCursor(const std::string& cursor)
+{
+    if (m_cursor == cursor) return;
+
+    if (cursor.empty()) {
+        m_cursor = "";
+        m_changeCursorImage = false;
+        return;
+    }
+
+    m_cursor = cursor;
+    m_changeCursorImage = true;
 }

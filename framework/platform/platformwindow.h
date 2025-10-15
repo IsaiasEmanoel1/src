@@ -46,6 +46,7 @@ public:
     virtual void resize(const Size& size) = 0;
     virtual void show() = 0;
     virtual void hide() = 0;
+    virtual void minimize() = 0;
     virtual void maximize() = 0;
     virtual void poll() = 0;
     virtual void swapBuffers() = 0;
@@ -63,6 +64,8 @@ public:
     virtual void setVerticalSync(bool enable) = 0;
     virtual void setIcon(const std::string& iconFile) = 0;
     virtual void setClipboardText(const std::string& text) = 0;
+
+    bool hasVerticalSync() { return m_verticalSync; }
 
     virtual Size getDisplaySize() = 0;
     virtual std::string getClipboardText() = 0;
@@ -94,6 +97,13 @@ public:
     void setOnResize(const OnResizeCallback& onResize) { m_onResize = onResize; }
     void setOnInputEvent(const OnInputEventCallback& onInputEvent) { m_onInputEvent = onInputEvent; }
 
+    virtual void showTextEditor(const std::string& title, const std::string& description, const std::string& text, int flags) {}
+    virtual void handleTextInput(std::string text) {} // for android
+
+    void setScaling(float scaling) { m_scaling = scaling; }
+
+    virtual void flash();
+
 protected:
     virtual int internalLoadMouseCursor(const ImagePtr& image, const Point& hotSpot) = 0;
 
@@ -116,13 +126,15 @@ protected:
     Size m_unmaximizedSize;
     Point m_unmaximizedPos;
     InputEvent m_inputEvent;
-    stdext::boolean<false> m_mouseButtonStates[4];
+    stdext::boolean<false> m_mouseButtonStates[Fw::MouseButtonLast + 1];
 
     stdext::boolean<false> m_created;
     stdext::boolean<false> m_visible;
     stdext::boolean<false> m_focused;
     stdext::boolean<false> m_fullscreen;
     stdext::boolean<false> m_maximized;
+    bool m_verticalSync = false;
+    float m_scaling = 1.0;
 
     std::function<void()> m_onClose;
     OnResizeCallback m_onResize;

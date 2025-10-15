@@ -60,6 +60,7 @@ public:
     void resize(const Size& size);
     void show();
     void hide();
+    void minimize();
     void maximize();
     void poll();
     void swapBuffers();
@@ -79,6 +80,7 @@ public:
     Size getDisplaySize();
     std::string getClipboardText();
     std::string getPlatformType();
+    void displayFatalError(const std::string& message);
 
 protected:
     int internalLoadMouseCursor(const ImagePtr& image, const Point& hotSpot);

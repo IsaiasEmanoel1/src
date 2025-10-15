@@ -31,12 +31,16 @@
 #include <framework/luaengine/luainterface.h>
 #include <framework/platform/crashhandler.h>
 #include <framework/platform/platform.h>
+#include <framework/http/http.h>
+
+#if not(defined(ANDROID) || defined(FREE_VERSION))
+#include <boost/process.hpp>
+#endif
 
 #include <locale>
 
-#ifdef FW_NET
 #include <framework/net/connection.h>
-#endif
+#include <framework/proxy/proxy.h>
 
 void exitSignalHandler(int sig)
 {
@@ -59,6 +63,9 @@ Application::Application()
     m_appVersion = "none";
     m_charset = "cp1252";
     m_stopping = false;
+#ifdef ANDROID
+    m_mobile = true;
+#endif
 }
 
 void Application::init(std::vector<std::string>& args)
@@ -66,10 +73,6 @@ void Application::init(std::vector<std::string>& args)
     // capture exit signals
     signal(SIGTERM, exitSignalHandler);
     signal(SIGINT, exitSignalHandler);
-
-#ifdef CRASH_HANDLER
-    installCrashHandler();
-#endif
 
     // setup locale
     std::locale::global(std::locale());
@@ -90,15 +93,19 @@ void Application::init(std::vector<std::string>& args)
 
     m_startupOptions = startupOptions;
 
+    // mobile testing
+    if (startupOptions.find("-mobile") != std::string::npos)
+        m_mobile = true;
+
     // initialize configs
     g_configs.init();
-
-    // initialize resources
-    g_resources.init(args[0].c_str());
 
     // initialize lua
     g_lua.init();
     registerLuaFunctions();
+
+    // initalize proxy
+    g_proxy.init();
 }
 
 void Application::deinit()
@@ -115,18 +122,14 @@ void Application::deinit()
     // poll remaining events
     poll();
 
-    g_asyncDispatcher.terminate();
-
     // disable dispatcher events
     g_dispatcher.shutdown();
 }
 
 void Application::terminate()
 {
-#ifdef FW_NET
     // terminate network
     Connection::terminate();
-#endif
 
     // release configs
     g_configs.terminate();
@@ -137,6 +140,9 @@ void Application::terminate()
     // terminate script environment
     g_lua.terminate();
 
+    // terminate proxy
+    g_proxy.terminate();
+
     m_terminated = true;
 
     signal(SIGTERM, SIG_DFL);
@@ -145,16 +151,12 @@ void Application::terminate()
 
 void Application::poll()
 {
-#ifdef FW_NET
     Connection::poll();
-#endif
 
     g_dispatcher.poll();
 
     // poll connection again to flush pending write
-#ifdef FW_NET
     Connection::poll();
-#endif
 }
 
 void Application::exit()
@@ -163,15 +165,56 @@ void Application::exit()
     m_stopping = true;
 }
 
+void Application::quick_exit()
+{
+#ifdef _MSC_VER
+    ::quick_exit(0);
+#else
+    ::exit(0);
+#endif
+}
+
 void Application::close()
 {
     if(!g_lua.callGlobalField<bool>("g_app", "onClose"))
         exit();
 }
 
+void Application::restart()
+{
+#if not(defined(ANDROID) || defined(FREE_VERSION))
+    boost::process::child c(g_resources.getBinaryName());
+    std::error_code ec2;
+    if (c.wait_for(std::chrono::seconds(1), ec2)) {
+        g_logger.fatal("Updater restart error. Please restart application");
+    }
+    c.detach();
+    quick_exit();
+#else
+    exit();
+#endif
+}
+
+void Application::restartArgs(const std::vector<std::string>& args)
+{
+#if not(defined(ANDROID) || defined(FREE_VERSION))
+    boost::process::child c(g_resources.getBinaryName(), boost::process::args(args));
+    std::error_code ec2;
+    if (c.wait_for(std::chrono::seconds(1), ec2)) {
+        g_logger.fatal("Updater restart error. Please restart application");
+    }
+    c.detach();
+    quick_exit();
+#else
+    exit();
+#endif
+}
+
 std::string Application::getOs()
 {
-#if defined(WIN32)
+#if defined(ANDROID)
+    return "android";
+#elif defined(WIN32)
     return "windows";
 #elif defined(__APPLE__)
     return "mac";

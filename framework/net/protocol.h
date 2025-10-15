@@ -29,6 +29,9 @@
 #include "connection.h"
 
 #include <framework/luaengine/luaobject.h>
+#include <framework/proxy/proxy.h>
+
+#include <zlib.h>
 
 // @bindclass
 class Protocol : public LuaObject
@@ -37,8 +40,12 @@ public:
     Protocol();
     virtual ~Protocol();
 
+
     void connect(const std::string& host, uint16 port);
     void disconnect();
+
+    void setRecorder(PacketRecorderPtr recorder);
+    void playRecord(PacketPlayerPtr player);
 
     bool isConnected();
     bool isConnecting();
@@ -53,8 +60,11 @@ public:
     void enableXteaEncryption() { m_xteaEncryptionEnabled = true; }
 
     void enableChecksum() { m_checksumEnabled = true; }
+    void enabledSequencedPackets() { m_sequencedPackets = true; }
+    void enableBigPackets() { m_bigPackets = true; }
+    void enableCompression() { m_compression = true; }
 
-    virtual void send(const OutputMessagePtr& outputMessage);
+    virtual void send(const OutputMessagePtr& outputMessage, bool rawPacket = false);
     virtual void recv();
 
     ProtocolPtr asProtocol() { return static_self_cast<Protocol>(); }
@@ -64,19 +74,34 @@ protected:
     virtual void onRecv(const InputMessagePtr& inputMessage);
     virtual void onError(const boost::system::error_code& err);
 
+    void onProxyPacket(const std::shared_ptr<std::vector<uint8_t>>& packet);
+    void onPlayerPacket(const std::shared_ptr<std::vector<uint8_t>>& packet);
+    void onLocalDisconnected(boost::system::error_code ec);
+    bool m_disconnected = false;
+    uint32_t m_proxy = 0;
+
     uint32 m_xteaKey[4];
+    uint32 m_packetNumber;
+
+    PacketPlayerPtr m_player;
+    PacketRecorderPtr m_recorder;
 
 private:
-    void internalRecvHeader(uint8* buffer, uint16 size);
-    void internalRecvData(uint8* buffer, uint16 size);
+    void internalRecvHeader(uint8* buffer, uint32 size);
+    void internalRecvData(uint8* buffer, uint32 size);
 
     bool xteaDecrypt(const InputMessagePtr& inputMessage);
     void xteaEncrypt(const OutputMessagePtr& outputMessage);
 
     bool m_checksumEnabled;
+    bool m_sequencedPackets;
     bool m_xteaEncryptionEnabled;
+    bool m_bigPackets;
+    bool m_compression;
     ConnectionPtr m_connection;
     InputMessagePtr m_inputMessage;
+    z_stream m_zstream;
+    std::vector<uint8_t> m_zstreamBuffer;
 };
 
 #endif

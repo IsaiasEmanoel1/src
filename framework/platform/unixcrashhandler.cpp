@@ -20,7 +20,7 @@
  * THE SOFTWARE.
  */
 
-#if !defined(WIN32) && defined(CRASH_HANDLER)
+#if !defined(WIN32) && defined(CRASH_HANDLER) && !defined(__EMSCRIPTEN__)
 
 #include "crashhandler.h"
 #include <framework/global.h>
@@ -133,6 +133,11 @@ void installCrashHandler()
     sigaction(SIGSEGV, &sa, NULL);  // segmentation fault
     sigaction(SIGFPE, &sa, NULL);   // floating-point exception
     sigaction(SIGABRT, &sa, NULL);  // process aborted (asserts)
+}
+
+void uninstallCrashHandler()
+{
+    
 }
 
 #endif

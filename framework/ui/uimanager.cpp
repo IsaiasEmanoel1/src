@@ -29,6 +29,7 @@
 #include <framework/core/eventdispatcher.h>
 #include <framework/core/application.h>
 #include <framework/core/resourcemanager.h>
+#include <framework/util/extras.h>
 
 UIManager g_ui;
 
@@ -50,7 +51,8 @@ void UIManager::terminate()
     m_rootWidget = nullptr;
     m_draggingWidget = nullptr;
     m_hoveredWidget = nullptr;
-    m_pressedWidget = nullptr;
+    for(auto& widget : m_pressedWidget)
+        widget = nullptr;
     m_styles.clear();
     m_destroyedWidgets.clear();
     m_checkEvent = nullptr;
@@ -63,7 +65,8 @@ void UIManager::render(Fw::DrawPane drawPane)
 
 void UIManager::resize(const Size& size)
 {
-    m_rootWidget->setSize(g_window.getSize());
+    m_rootWidget->setSize(size);
+    m_moveTimer.restart();
 }
 
 void UIManager::inputEvent(const InputEvent& event)
@@ -71,23 +74,29 @@ void UIManager::inputEvent(const InputEvent& event)
     UIWidgetList widgetList;
     switch(event.type) {
         case Fw::KeyTextInputEvent:
+            g_lua.callGlobalField("g_ui", "onKeyText", event.keyText);
             m_keyboardReceiver->propagateOnKeyText(event.keyText);
             break;
         case Fw::KeyDownInputEvent:
+            g_lua.callGlobalField("g_ui", "onKeyDown", event.keyCode, event.keyboardModifiers);
             m_keyboardReceiver->propagateOnKeyDown(event.keyCode, event.keyboardModifiers);
             break;
         case Fw::KeyPressInputEvent:
+            g_lua.callGlobalField("g_ui", "onKeyPress", event.keyCode, event.keyboardModifiers, event.autoRepeatTicks);
             m_keyboardReceiver->propagateOnKeyPress(event.keyCode, event.keyboardModifiers, event.autoRepeatTicks);
             break;
         case Fw::KeyUpInputEvent:
+            g_lua.callGlobalField("g_ui", "onKeyUp", event.keyCode, event.keyboardModifiers);
             m_keyboardReceiver->propagateOnKeyUp(event.keyCode, event.keyboardModifiers);
             break;
         case Fw::MousePressInputEvent:
-            if(event.mouseButton == Fw::MouseLeftButton && m_mouseReceiver->isVisible()) {
+            g_lua.callGlobalField("g_ui", "onMousePress", event.mousePos, event.mouseButton);
+
+            if(m_mouseReceiver->isVisible() && (event.mouseButton == Fw::MouseLeftButton || event.mouseButton == Fw::MouseTouch2 || event.mouseButton == Fw::MouseTouch3)) {
                 UIWidgetPtr pressedWidget = m_mouseReceiver->recursiveGetChildByPos(event.mousePos, false);
                 if(pressedWidget && !pressedWidget->isEnabled())
                     pressedWidget = nullptr;
-                updatePressedWidget(pressedWidget, event.mousePos);
+                updatePressedWidget(event.mouseButton, pressedWidget, event.mousePos);
             }
 
             m_mouseReceiver->propagateOnMouseEvent(event.mousePos, widgetList);
@@ -99,6 +108,8 @@ void UIManager::inputEvent(const InputEvent& event)
 
             break;
         case Fw::MouseReleaseInputEvent: {
+            g_lua.callGlobalField("g_ui", "onMouseRelease", event.mousePos, event.mouseButton);
+
             // release dragging widget
             bool accepted = false;
             if(m_draggingWidget && event.mouseButton == Fw::MouseLeftButton)
@@ -108,11 +119,11 @@ void UIManager::inputEvent(const InputEvent& event)
                 m_mouseReceiver->propagateOnMouseEvent(event.mousePos, widgetList);
 
                 // mouse release is always fired first on the pressed widget
-                if(m_pressedWidget) {
-                    auto it = std::find(widgetList.begin(), widgetList.end(), m_pressedWidget);
+                if(m_pressedWidget[event.mouseButton]) {
+                    auto it = std::find(widgetList.begin(), widgetList.end(), m_pressedWidget[event.mouseButton]);
                     if(it != widgetList.end())
                         widgetList.erase(it);
-                    widgetList.push_front(m_pressedWidget);
+                    widgetList.push_front(m_pressedWidget[event.mouseButton]);
                 }
 
                 for(const UIWidgetPtr& widget : widgetList) {
@@ -121,16 +132,21 @@ void UIManager::inputEvent(const InputEvent& event)
                 }
             }
 
-            if(m_pressedWidget && event.mouseButton == Fw::MouseLeftButton)
-                updatePressedWidget(nullptr, event.mousePos, !accepted);
+            if (event.mouseButton == Fw::MouseLeftButton || event.mouseButton == Fw::MouseTouch2 || event.mouseButton == Fw::MouseTouch3) {
+                if(m_pressedWidget[event.mouseButton]) {
+                    updatePressedWidget(event.mouseButton, nullptr, event.mousePos, !accepted);
+                }
+            }
             break;
         }
         case Fw::MouseMoveInputEvent: {
+            g_lua.callGlobalField("g_ui", "onMouseMove", event.mousePos, event.mouseMoved);
+
             // start dragging when moving a pressed widget
-            if(m_pressedWidget && m_pressedWidget->isDraggable() && m_draggingWidget != m_pressedWidget) {
+            if(m_pressedWidget[Fw::MouseLeftButton] && m_pressedWidget[Fw::MouseLeftButton]->isDraggable() && m_draggingWidget != m_pressedWidget[Fw::MouseLeftButton]) {
                 // only drags when moving more than 4 pixels
-                if((event.mousePos - m_pressedWidget->getLastClickPosition()).length() >= 4)
-                    updateDraggingWidget(m_pressedWidget, event.mousePos - event.mouseMoved);
+                if((event.mousePos - m_pressedWidget[Fw::MouseLeftButton]->getLastClickPosition()).length() >= 4)
+                    updateDraggingWidget(m_pressedWidget[Fw::MouseLeftButton], event.mousePos - event.mouseMoved);
             }
 
             // mouse move can change hovered widgets
@@ -142,7 +158,14 @@ void UIManager::inputEvent(const InputEvent& event)
                     break;
             }
 
-            m_mouseReceiver->propagateOnMouseMove(event.mousePos, event.mouseMoved, widgetList);
+            if (m_pressedWidget[Fw::MouseLeftButton]) {
+                if (m_pressedWidget[Fw::MouseLeftButton]->onMouseMove(event.mousePos, event.mouseMoved)) {
+                    break;
+                }
+            }
+
+            //m_mouseReceiver->propagateOnMouseMove(event.mousePos, event.mouseMoved, widgetList);
+            m_rootWidget->propagateOnMouseMove(event.mousePos, event.mouseMoved, widgetList);
             for(const UIWidgetPtr& widget : widgetList) {
                 if(widget->onMouseMove(event.mousePos, event.mouseMoved))
                     break;
@@ -150,6 +173,8 @@ void UIManager::inputEvent(const InputEvent& event)
             break;
         }
         case Fw::MouseWheelInputEvent:
+            g_lua.callGlobalField("g_ui", "onMouseWheel", event.mousePos, event.wheelDirection);
+
             m_rootWidget->propagateOnMouseEvent(event.mousePos, widgetList);
             for(const UIWidgetPtr& widget : widgetList) {
                 if(widget->onMouseWheel(event.mousePos, event.wheelDirection))
@@ -161,13 +186,13 @@ void UIManager::inputEvent(const InputEvent& event)
     };
 }
 
-void UIManager::updatePressedWidget(const UIWidgetPtr& newPressedWidget, const Point& clickedPos, bool fireClicks)
+void UIManager::updatePressedWidget(Fw::MouseButton button, const UIWidgetPtr& newPressedWidget, const Point& clickedPos, bool fireClicks)
 {
-    UIWidgetPtr oldPressedWidget = m_pressedWidget;
-    m_pressedWidget = newPressedWidget;
+    UIWidgetPtr oldPressedWidget = m_pressedWidget[button];
+    m_pressedWidget[button] = newPressedWidget;
 
     // when releasing mouse inside pressed widget area send onClick event
-    if(fireClicks && oldPressedWidget && oldPressedWidget->isEnabled() && oldPressedWidget->containsPoint(clickedPos))
+    if (fireClicks && oldPressedWidget && oldPressedWidget->isEnabled() && oldPressedWidget->containsPoint(clickedPos))
         oldPressedWidget->onClick(clickedPos);
 
     if(newPressedWidget)
@@ -263,6 +288,8 @@ void UIManager::onWidgetDisappear(const UIWidgetPtr& widget)
 
 void UIManager::onWidgetDestroy(const UIWidgetPtr& widget)
 {
+    AutoStat s(STATS_MAIN, "UIManager::onWidgetDestroy", stdext::format("%s (%s)", widget->getId(), widget->getParent() ? widget->getParent()->getId() : ""));
+
     // release input grabs
     if(m_keyboardReceiver == widget)
         resetKeyboardReceiver();
@@ -273,13 +300,18 @@ void UIManager::onWidgetDestroy(const UIWidgetPtr& widget)
     if(m_hoveredWidget == widget)
         updateHoveredWidget();
 
-    if(m_pressedWidget == widget)
-        updatePressedWidget(nullptr);
+    for (int i = 0; i <= Fw::MouseButtonLast + 1; ++i) {
+        if (m_pressedWidget[i] == widget) {
+            updatePressedWidget((Fw::MouseButton)i, nullptr);
+        }
+    }
 
     if(m_draggingWidget == widget)
         updateDraggingWidget(nullptr);
 
-#ifndef NDEBUG
+    if (!g_extras.debugWidgets)
+        return;
+
     if(widget == m_rootWidget || !m_rootWidget)
         return;
 
@@ -290,17 +322,16 @@ void UIManager::onWidgetDestroy(const UIWidgetPtr& widget)
 
     m_checkEvent = g_dispatcher.scheduleEvent([this] {
         g_lua.collectGarbage();
-        UIWidgetList backupList = m_destroyedWidgets;
+        UIWidgetList backupList(std::move(m_destroyedWidgets));
         m_destroyedWidgets.clear();
         g_dispatcher.scheduleEvent([backupList] {
             g_lua.collectGarbage();
             for(const UIWidgetPtr& widget : backupList) {
                 if(widget->ref_count() != 1)
-                    g_logger.warning(stdext::format("widget '%s' destroyed but still have %d reference(s) left", widget->getId(), widget->getUseCount()-1));
+                    g_logger.warning(stdext::format("widget '%s' (parent: '%s' (%s), source: '%s') destroyed but still have %d reference(s) left", widget->getId(), widget->getParent() ? widget->getParent()->getId() : "", widget->getParentId(), widget->getSource(), widget->getUseCount()-1));
             }
         }, 1);
     }, 1000);
-#endif
 }
 
 void UIManager::clearStyles()
@@ -320,6 +351,19 @@ bool UIManager::importStyle(std::string file)
         return true;
     } catch(stdext::exception& e) {
         g_logger.error(stdext::format("Failed to import UI styles from '%s': %s", file, e.what()));
+        return false;
+    }
+}
+
+bool UIManager::importStyleFromString(std::string data)
+{
+    try {
+        OTMLDocumentPtr doc = OTMLDocument::parseString(data, g_lua.getCurrentSourcePath());
+        for(const OTMLNodePtr& styleNode : doc->children())
+            importStyleFromOTML(styleNode);
+        return true;
+    } catch(stdext::exception& e) {
+        g_logger.error(stdext::format("Failed to import UI styles from '%s': %s", g_lua.getCurrentSourcePath(), e.what()));
         return false;
     }
 }
@@ -393,6 +437,36 @@ std::string UIManager::getStyleClass(const std::string& styleName)
     return "";
 }
 
+
+UIWidgetPtr UIManager::loadUIFromString(const std::string& data, const UIWidgetPtr& parent)
+{
+    try {
+        std::stringstream sstream;
+        sstream.clear(std::ios::goodbit);
+        sstream.write(&data[0], data.length());
+        sstream.seekg(0, std::ios::beg);
+        OTMLDocumentPtr doc = OTMLDocument::parse(sstream, "(string)");
+        UIWidgetPtr widget;
+        for (const OTMLNodePtr& node : doc->children()) {
+            std::string tag = node->tag();
+
+            // import styles in these files too
+            if (tag.find("<") != std::string::npos)
+                importStyleFromOTML(node);
+            else {
+                if (widget)
+                    stdext::throw_exception("cannot have multiple main widgets in otui files");
+                widget = createWidgetFromOTML(node, parent);
+            }
+        }
+
+        return widget;
+    } catch (stdext::exception& e) {
+        g_logger.error(stdext::format("failed to load UI from string: %s", e.what()));
+        return nullptr;
+    }
+}
+
 UIWidgetPtr UIManager::loadUI(std::string file, const UIWidgetPtr& parent)
 {
     try {
@@ -462,5 +536,6 @@ UIWidgetPtr UIManager::createWidgetFromOTML(const OTMLNodePtr& widgetNode, const
         stdext::throw_exception(stdext::format("unable to create widget of type '%s'", widgetType));
 
     widget->callLuaField("onSetup");
+
     return widget;
 }

@@ -23,10 +23,11 @@
 #ifndef CLIENT_CONST_H
 #define CLIENT_CONST_H
 
+#include <cstdint>
+
 namespace Otc
 {
-    enum {
-        TILE_PIXELS = 32,
+    enum : int {
         MAX_ELEVATION = 24,
 
         SEA_FLOOR = 7,
@@ -35,13 +36,19 @@ namespace Otc
         AWARE_UNDEGROUND_FLOOR_RANGE = 2,
 
         INVISIBLE_TICKS_PER_FRAME = 500,
+        INVISIBLE_TICKS_PER_FRAME_FAST = 100,
         ITEM_TICKS_PER_FRAME = 500,
+        ITEM_TICKS_PER_FRAME_FAST = 100,
         ANIMATED_TEXT_DURATION = 1000,
         STATIC_DURATION_PER_CHARACTER = 60,
         MIN_STATIC_TEXT_DURATION = 3000,
         MAX_STATIC_TEXT_WIDTH = 200,
         MAX_AUTOWALK_STEPS_RETRY = 10,
         MAX_AUTOWALK_DIST = 127
+    };
+
+    enum DepthConst {
+        MAX_DEPTH = 16384 - 2048
     };
 
     enum DrawFlags {
@@ -61,11 +68,13 @@ namespace Otc
         DrawNames = 8192,
         DrawLights = 16384,
         DrawManaBar = 32768,
+        DontDrawLocalPlayer = 65536,
+        DrawIcons = 131072,
         DrawWalls = DrawOnBottom | DrawOnTop,
         DrawEverything = DrawGround | DrawGroundBorders | DrawWalls | DrawItems |
                          DrawCreatures | DrawEffects | DrawMissiles | DrawCreaturesInformation |
                          DrawStaticTexts | DrawAnimatedTexts | DrawAnimations | DrawBars | DrawNames |
-                         DrawLights | DrawManaBar
+                         DrawLights | DrawManaBar | DrawIcons
     };
 
     enum DatOpts {
@@ -361,7 +370,7 @@ namespace Otc
         GameMagicEffectU16 = 16,
         GamePlayerMarket = 17,
         GameSpritesU32 = 18,
-        // 19 unused
+        GameTileAddThingWithStackpos = 19,
         GameOfflineTrainingTime = 20,
         GamePurseSlot = 21,
         GameFormatCreatureName = 22,
@@ -417,8 +426,70 @@ namespace Otc
         GameIngameStoreHighlights = 74,
         GameIngameStoreServiceType = 75,
         GameAdditionalSkills = 76,
+        GameDistanceEffectU16 = 77,
+        GamePrey = 78,
+        GameDoubleMagicLevel = 79,
 
-        LastGameFeature = 101
+        GameExtendedOpcode = 80,
+        GameMinimapLimitedToSingleFloor = 81,
+        GameSendWorldName = 82,
+
+        GameDoubleLevel = 83,
+        GameDoubleSoul = 84,
+        GameDoublePlayerGoodsMoney = 85,
+        GameCreatureWalkthrough = 86,
+        GameDoubleTradeMoney = 87,
+        GameSequencedPackets = 88,
+        GameTibia12Protocol = 89,
+
+        // 90-99 otclientv8 features
+        GameNewWalking = 90,
+        GameSlowerManualWalking = 91,
+
+        GameItemTooltip = 93,
+
+        GameBot = 95,
+        GameBiggerMapCache = 96,
+        GameForceLight = 97,
+        GameNoDebug = 98,
+        GameBotProtection = 99,
+
+        // Custom features for customer
+        GameCreatureDirectionPassable = 100,
+        GameFasterAnimations = 101,
+        GameCenteredOutfits = 102,
+        GameSendIdentifiers = 103,
+        GameWingsAndAura = 104,
+        GamePlayerStateU32 = 105,
+        GameOutfitShaders = 106,
+        GameForceAllowItemHotkeys = 107,
+        GameCountU16 = 108,
+        GameDrawAuraOnTop = 109,
+
+        // advanced features
+        GamePacketSizeU32 = 110,
+        GamePacketCompression = 111,
+
+        // OTCv8-dev features
+        GameOldInformationBar = 112,
+        GameHealthInfoBackground = 113, 
+        GameWingOffset = 114,
+        GameAuraFrontAndBack = 115,
+
+        GameMapDrawGroundFirst = 116,
+        GameMapIgnoreCorpseCorrection = 117,
+        GameDontCacheFiles = 118,
+        GameBigAurasCenter = 119,
+        GameNewUpdateWalk = 120,
+        GameNewCreatureStacking = 121,
+        GameCreaturesMana = 122,
+        GameQuickLootFlags = 123,
+        GameDontMergeAnimatedText = 124,
+        GameMissionId = 125,
+        GameItemCustomAttributes = 126,
+        GameAnimatedTextCustomFont = 127,
+
+        LastGameFeature = 130
     };
 
     enum PathFindResult {
@@ -433,7 +504,8 @@ namespace Otc
         PathFindAllowNotSeenTiles = 1,
         PathFindAllowCreatures = 2,
         PathFindAllowNonPathable = 4,
-        PathFindAllowNonWalkable = 8
+        PathFindAllowNonWalkable = 8,
+        PathFindIgnoreCreatures = 16
     };
 
     enum AutomapFlags {
@@ -506,6 +578,74 @@ namespace Otc
         StateNew = 1,
         StateSale = 2,
         StateTimed = 3
+    };
+
+    enum PreySlotNum_t : uint8_t {
+        PREY_SLOTNUM_FIRST = 0,
+        PREY_SLOTNUM_SECOND = 1,
+        PREY_SLOTNUM_THIRD = 2,
+        PREY_SLOTNUM_LAST = PREY_SLOTNUM_THIRD
+    };
+    enum PreyState_t : uint8_t {
+        PREY_STATE_LOCKED = 0,
+        PREY_STATE_INACTIVE = 1,
+        PREY_STATE_ACTIVE = 2,
+        PREY_STATE_SELECTION = 3,
+        PREY_STATE_SELECTION_CHANGE_MONSTER = 4,
+        PREY_STATE_SELECTION_FROMALL = 5,
+        PREY_STATE_CHANGE_FROMALL = 6,
+    };
+    enum PreyMessageDialog_t : uint8_t {
+        //PREY_MESSAGEDIALOG_IMBUEMENT_SUCCESS = 0,
+        //PREY_MESSAGEDIALOG_IMBUEMENT_ERROR = 1,
+        //PREY_MESSAGEDIALOG_IMBUEMENT_ROLL_FAILED = 2,
+        //PREY_MESSAGEDIALOG_IMBUEMENT_STATION_NOT_FOUND = 3,
+        //PREY_MESSAGEDIALOG_IMBUEMENT_CHARM_SUCCESS = 10,
+        //PREY_MESSAGEDIALOG_IMBUEMENT_CHARM_ERROR = 11,
+        PREY_MESSAGEDIALOG_PREY_MESSAGE = 20,
+        PREY_MESSAGEDIALOG_PREY_ERROR = 21,
+    };
+    enum PreyResourceType_t : uint8_t {
+        PREY_RESOURCETYPE_BANK_GOLD = 0,
+        PREY_RESOURCETYPE_INVENTORY_GOLD = 1,
+        PREY_RESOURCETYPE_PREY_BONUS_REROLLS = 10
+    };
+    enum PreyBonusType_t : uint8_t {
+        PREY_BONUS_DAMAGE_BOOST = 0,
+        PREY_BONUS_DAMAGE_REDUCTION = 1,
+        PREY_BONUS_XP_BONUS = 2,
+        PREY_BONUS_IMPROVED_LOOT = 3,
+        PREY_BONUS_NONE = 4, // internal usage but still added to client;
+        PREY_BONUS_FIRST = PREY_BONUS_DAMAGE_BOOST,
+        PREY_BONUS_LAST = PREY_BONUS_IMPROVED_LOOT,
+    };
+    enum PreyAction_t : uint8_t {
+        PREY_ACTION_LISTREROLL = 0,
+        PREY_ACTION_BONUSREROLL = 1,
+        PREY_ACTION_MONSTERSELECTION = 2,
+        PREY_ACTION_REQUEST_ALL_MONSTERS = 3,
+        PREY_ACTION_CHANGE_FROM_ALL = 4,
+        PREY_ACTION_LOCK_PREY = 5,
+
+    };
+    enum PreyConfigState {
+        PREY_CONFIG_STATE_FREE,
+        PREY_CONFIG_STATE_PREMIUM,
+        PREY_CONFIG_STATE_TIBIACOINS
+    };
+    enum PreyUnlockState_t : uint8_t {
+        PREY_UNLOCK_STORE_AND_PREMIUM = 0,
+        PREY_UNLOCK_STORE = 1,
+        PREY_UNLOCK_NONE = 2,
+    };
+
+    enum MagicEffectsType_t : uint8_t {
+        MAGIC_EFFECTS_END_LOOP = 0,
+        MAGIC_EFFECTS_DELTA = 1,
+        MAGIC_EFFECTS_DELAY = 2,
+        MAGIC_EFFECTS_CREATE_EFFECT = 3,
+        MAGIC_EFFECTS_CREATE_DISTANCEEFFECT = 4,
+        MAGIC_EFFECTS_CREATE_DISTANCEEFFECT_REVERSED = 5,
     };
 }
 

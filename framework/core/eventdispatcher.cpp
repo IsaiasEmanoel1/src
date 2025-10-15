@@ -23,9 +23,16 @@
 #include "eventdispatcher.h"
 
 #include <framework/core/clock.h>
+#include <framework/core/graphicalapplication.h>
+#include <framework/graphics/graph.h>
+#include <framework/util/stats.h>
 #include "timer.h"
 
 EventDispatcher g_dispatcher;
+EventDispatcher g_graphicsDispatcher;
+std::thread::id g_mainThreadId = std::this_thread::get_id();
+std::thread::id g_graphicsThreadId = std::this_thread::get_id();
+std::thread::id g_dispatcherThreadId = std::this_thread::get_id();
 
 void EventDispatcher::shutdown()
 {
@@ -42,13 +49,24 @@ void EventDispatcher::shutdown()
 
 void EventDispatcher::poll()
 {
+    AutoStat s(this == &g_dispatcher ? STATS_MAIN : STATS_RENDER, "PollDispatcher");
+    std::unique_lock<std::recursive_mutex> lock(m_mutex);
+
+    int events = 0;
     int loops = 0;
     for(int count = 0, max = m_scheduledEventList.size(); count < max && !m_scheduledEventList.empty(); ++count) {
         ScheduledEventPtr scheduledEvent = m_scheduledEventList.top();
         if(scheduledEvent->remainingTicks() > 0)
             break;
         m_scheduledEventList.pop();
-        scheduledEvent->execute();
+        {
+            AutoStat s2(STATS_DISPATCHER, scheduledEvent->getFunction());
+            m_botSafe = scheduledEvent->isBotSafe();
+            lock.unlock();
+            scheduledEvent->execute();
+            events += 1;
+            lock.lock();
+        }
 
         if(scheduledEvent->nextCycle())
             m_scheduledEventList.push(scheduledEvent);
@@ -59,10 +77,16 @@ void EventDispatcher::poll()
     m_pollEventsSize = m_eventList.size();
     loops = 0;
     while(m_pollEventsSize > 0) {
-        if(loops > 50) {
+        if(loops > 100) {
             static Timer reportTimer;
-            if(reportTimer.running() && reportTimer.ticksElapsed() > 100) {
-                g_logger.error("ATTENTION the event list is not getting empty, this could be caused by some bad code");
+            if(reportTimer.running() && reportTimer.ticksElapsed() > 500) {
+                std::stringstream ss;
+                ss << "ATTENTION the event list is not getting empty, this could be caused by some bad code.\nLog:\n";
+                for (auto& event : m_eventList) {
+                    ss << event->getFunction() << "\n";
+                    if (ss.str().size() > 512) break;
+                }
+                g_logger.error(ss.str());                
                 reportTimer.restart();
             }
             break;
@@ -71,42 +95,60 @@ void EventDispatcher::poll()
         for(int i=0;i<m_pollEventsSize;++i) {
             EventPtr event = m_eventList.front();
             m_eventList.pop_front();
-            event->execute();
+            {
+                AutoStat s2(STATS_DISPATCHER, event->getFunction());
+                m_botSafe = event->isBotSafe();
+                lock.unlock();
+                event->execute();
+                events += 1;
+                lock.lock();
+            }
         }
         m_pollEventsSize = m_eventList.size();
         
         loops++;
     }
+
+    g_graphs[this == &g_dispatcher ? GRAPH_DISPATCHER_EVENTS : GRAPH_GRAPHICS_EVENTS].addValue(events, true);
+
+    m_botSafe = false;
 }
 
-ScheduledEventPtr EventDispatcher::scheduleEvent(const std::function<void()>& callback, int delay)
+ScheduledEventPtr EventDispatcher::scheduleEventEx(const std::string& function, const std::function<void()>& callback, int delay)
 {
     if(m_disabled)
-        return ScheduledEventPtr(new ScheduledEvent(nullptr, delay, 1));
+        return ScheduledEventPtr(new ScheduledEvent("", nullptr, delay, 1));
 
-    assert(delay >= 0);
-    ScheduledEventPtr scheduledEvent(new ScheduledEvent(callback, delay, 1));
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+    VALIDATE(delay >= 0);
+    ScheduledEventPtr scheduledEvent(new ScheduledEvent(function, callback, delay, 1, g_app.isOnInputEvent()));
     m_scheduledEventList.push(scheduledEvent);
     return scheduledEvent;
 }
 
-ScheduledEventPtr EventDispatcher::cycleEvent(const std::function<void()>& callback, int delay)
+ScheduledEventPtr EventDispatcher::cycleEventEx(const std::string& function, const std::function<void()>& callback, int delay)
 {
     if(m_disabled)
-        return ScheduledEventPtr(new ScheduledEvent(nullptr, delay, 0));
+        return ScheduledEventPtr(new ScheduledEvent("", nullptr, delay, 0));
 
-    assert(delay > 0);
-    ScheduledEventPtr scheduledEvent(new ScheduledEvent(callback, delay, 0));
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+    VALIDATE(delay > 0);
+    ScheduledEventPtr scheduledEvent(new ScheduledEvent(function, callback, delay, 0, g_app.isOnInputEvent()));
     m_scheduledEventList.push(scheduledEvent);
     return scheduledEvent;
 }
 
-EventPtr EventDispatcher::addEvent(const std::function<void()>& callback, bool pushFront)
+EventPtr EventDispatcher::addEventEx(const std::string& function, const std::function<void()>& callback, bool pushFront)
 {
     if(m_disabled)
-        return EventPtr(new Event(nullptr));
+        return EventPtr(new Event("", nullptr));
 
-    EventPtr event(new Event(callback));
+    EventPtr event(new Event(function, callback, g_app.isOnInputEvent()));
+
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
     // front pushing is a way to execute an event before others
     if(pushFront) {
         m_eventList.push_front(event);

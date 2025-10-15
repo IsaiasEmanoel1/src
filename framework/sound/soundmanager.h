@@ -20,6 +20,8 @@
  * THE SOFTWARE.
  */
 
+#ifdef FW_SOUND
+
 #ifndef SOUNDMANAGER_H
 #define SOUNDMANAGER_H
 
@@ -57,7 +59,7 @@ private:
     ALCdevice *m_device;
     ALCcontext *m_context;
 
-    std::map<StreamSoundSourcePtr, boost::shared_future<SoundFilePtr>> m_streamFiles;
+    std::map<StreamSoundSourcePtr, std::shared_future<SoundFilePtr>> m_streamFiles;
     std::unordered_map<std::string, SoundBufferPtr> m_buffers;
     std::vector<SoundSourcePtr> m_sources;
     stdext::boolean<true> m_audioEnabled;
@@ -65,5 +67,7 @@ private:
 };
 
 extern SoundManager g_sounds;
+
+#endif
 
 #endif

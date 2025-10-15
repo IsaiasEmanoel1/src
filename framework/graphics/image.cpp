@@ -26,6 +26,7 @@
 #include <framework/core/resourcemanager.h>
 #include <framework/core/filestream.h>
 #include <framework/graphics/apngloader.h>
+#include <framework/util/qrcodegen.h>
 
 Image::Image(const Size& size, int bpp, uint8 *pixels)
 {
@@ -63,13 +64,25 @@ ImagePtr Image::loadPNG(const std::string& file)
     return image;
 }
 
+ImagePtr Image::loadPNG(const void* data, uint32_t size)
+{
+    std::string temp((char*)data, size);
+    std::stringstream fin(temp);
+    ImagePtr image;
+    apng_data apng;
+    if (load_apng(fin, &apng) == 0) {
+        image = ImagePtr(new Image(Size(apng.width, apng.height), apng.bpp, apng.pdata));
+        free_apng(&apng);
+    }
+    return image;
+}
+
 void Image::savePNG(const std::string& fileName)
 {
     FileStreamPtr fin = g_resources.createFile(fileName);
     if(!fin)
         stdext::throw_exception(stdext::format("failed to open file '%s' for write", fileName));
 
-    fin->cache();
     std::stringstream data;
     save_png(data, m_size.width(), m_size.height(), 4, (unsigned char*)getPixelData());
     fin->write(data.str().c_str(), data.str().length());
@@ -77,72 +90,76 @@ void Image::savePNG(const std::string& fileName)
     fin->close();
 }
 
-void Image::overwriteMask(const Color& maskedColor, const Color& insideColor, const Color& outsideColor)
-{
-    assert(m_bpp == 4);
-
-    for(int p=0;p<getPixelCount();p++) {
-        uint8& r = m_pixels[p*4 + 0];
-        uint8& g = m_pixels[p*4 + 1];
-        uint8& b = m_pixels[p*4 + 2];
-        uint8& a = m_pixels[p*4 + 3];
-
-        Color pixelColor(r,g,b,a);
-        Color writeColor = (pixelColor == maskedColor) ? insideColor : outsideColor;
-
-        r = writeColor.r();
-        g = writeColor.g();
-        b = writeColor.b();
-        a = writeColor.a();
-    }
-}
-
 void Image::blit(const Point& dest, const ImagePtr& other)
 {
-    assert(m_bpp == 4);
+    VALIDATE(m_bpp == 4);
 
-    if(!other)
+    if (!other)
         return;
 
+    int width = other->getWidth(), height = other->getHeight();
     uint8* otherPixels = other->getPixelData();
-    for(int p = 0; p < other->getPixelCount(); ++p) {
-        int x = p % other->getWidth();
-        int y = p / other->getWidth();
-        int pos = ((dest.y + y) * m_size.width() + (dest.x + x)) * 4;
-
-        if (otherPixels[p*4+3] != 0) {
-            m_pixels[pos+0] = otherPixels[p*4+0];
-            m_pixels[pos+1] = otherPixels[p*4+1];
-            m_pixels[pos+2] = otherPixels[p*4+2];
-            m_pixels[pos+3] = otherPixels[p*4+3];
+    for (int y = 0, p = 0; y < height; ++y) {
+        int pos = ((dest.y + y) * m_size.width() + dest.x) * 4;
+        for (int x = 0; x < width; ++x) {
+            if (otherPixels[p + 3] != 0) {
+                *(uint32_t*)&m_pixels[pos] = *(uint32_t*)&otherPixels[p];
+            }
+            pos += 4;
+            p += 4;
         }
     }
 }
 
 void Image::paste(const ImagePtr& other)
 {
-    assert(m_bpp == 4);
+    VALIDATE(m_bpp == 4);
 
-    if(!other)
+    if (!other)
         return;
 
     uint8* otherPixels = other->getPixelData();
-    for(int p = 0; p < other->getPixelCount(); ++p) {
+    for (int p = 0; p < other->getPixelCount(); ++p) {
         int x = p % other->getWidth();
         int y = p / other->getWidth();
         int pos = (y * m_size.width() + x) * 4;
 
-        m_pixels[pos+0] = otherPixels[p*4+0];
-        m_pixels[pos+1] = otherPixels[p*4+1];
-        m_pixels[pos+2] = otherPixels[p*4+2];
-        m_pixels[pos+3] = otherPixels[p*4+3];
+        m_pixels[pos + 0] = otherPixels[p * 4 + 0];
+        m_pixels[pos + 1] = otherPixels[p * 4 + 1];
+        m_pixels[pos + 2] = otherPixels[p * 4 + 2];
+        m_pixels[pos + 3] = otherPixels[p * 4 + 3];
     }
+}
+
+ImagePtr Image::upscale()
+{
+    VALIDATE(m_bpp == 4);
+
+    ImagePtr newImage(new Image(m_size * 2));
+
+    uint8* otherPixels = newImage->getPixelData();
+
+    for (int p = 0; p < getPixelCount(); ++p) {
+        int x = p % getWidth();
+        int y = p / getWidth();
+        int srcPos = (y * getWidth() + x) * 4;
+        for (int xx = 0; xx < 2; ++xx) {
+            for (int yy = 0; yy < 2; ++yy) {
+                int dstPos = ((y * 2 + yy) * getWidth() * 2 + x * 2 + xx) * 4;
+                for (int i = 0; i < 4; ++i) {
+                    otherPixels[dstPos + i] = m_pixels[srcPos + i];
+                }
+            }
+        }
+    }
+
+    return newImage;
 }
 
 bool Image::nextMipmap()
 {
-    assert(m_bpp == 4);
-    assert(stdext::is_power_of_two(m_size.width()) && stdext::is_power_of_two(m_size.height()));
+    VALIDATE(m_bpp == 4);
+    VALIDATE(stdext::is_power_of_two(m_size.width()) && stdext::is_power_of_two(m_size.height()));
 
     int iw = m_size.width();
     int ih = m_size.height();
@@ -205,7 +222,7 @@ void Texture::generateSoftwareMipmaps(std::vector<uint8> inPixels)
 {
     bind();
 
-    assert(stdext::is_power_of_two(m_glSize.width()) && stdext::is_power_of_two(m_glSize.height()));
+    VALIDATE(stdext::is_power_of_two(m_glSize.width()) && stdext::is_power_of_two(m_glSize.height()));
 
     Size inSize = m_glSize;
     Size outSize = inSize / 2;
@@ -268,3 +285,22 @@ void Texture::generateSoftwareMipmaps(std::vector<uint8> inPixels)
     }
 }
 */
+
+ImagePtr Image::fromQRCode(const std::string& code, int border)
+{
+    enum qrcodegen_Ecc errCorLvl = qrcodegen_Ecc_HIGH;  // Error correction level
+
+    uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
+    uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
+    bool ok = qrcodegen_encodeText(code.c_str(), tempBuffer, qrcode, errCorLvl, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true);
+    if (!ok)
+        return nullptr;
+    int size = qrcodegen_getSize(qrcode);
+    ImagePtr image(new Image(Size(size + border * 2, size + border * 2)));
+    for (int x = 0; x < size + border * 2; ++x) {
+        for (int y = 0; y < size + border * 2; ++y) {
+            image->setPixel(x, y, qrcodegen_getModule(qrcode, x - border, y - border) ? Color::black : Color::white);
+        }
+    }
+    return image;
+}

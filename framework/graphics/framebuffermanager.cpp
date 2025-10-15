@@ -28,17 +28,21 @@ FrameBufferManager g_framebuffers;
 void FrameBufferManager::init()
 {
     m_temporaryFramebuffer = FrameBufferPtr(new FrameBuffer());
+    m_temporaryFramebuffer->setSmooth(true);
+    m_drawQueueTemporaryFramebuffer = FrameBufferPtr(new FrameBuffer());
+    m_drawQueueTemporaryFramebuffer->setSmooth(true);
 }
 
 void FrameBufferManager::terminate()
 {
     m_framebuffers.clear();
     m_temporaryFramebuffer = nullptr;
+    m_drawQueueTemporaryFramebuffer = nullptr;
 }
 
-FrameBufferPtr FrameBufferManager::createFrameBuffer()
+FrameBufferPtr FrameBufferManager::createFrameBuffer(bool withDepth)
 {
-    FrameBufferPtr fbo = FrameBufferPtr(new FrameBuffer());
+    FrameBufferPtr fbo = FrameBufferPtr(new FrameBuffer(withDepth));
     m_framebuffers.push_back(fbo);
     return fbo;
 }

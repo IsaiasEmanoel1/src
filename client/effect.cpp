@@ -22,40 +22,69 @@
 
 #include "effect.h"
 #include "map.h"
+#include "game.h"
 #include <framework/core/eventdispatcher.h>
+#include <framework/util/extras.h>
 
-void Effect::drawEffect(const Point& dest, float scaleFactor, bool animate, int offsetX, int offsetY, LightView *lightView)
+void Effect::draw(const Point& dest, int offsetX, int offsetY, bool animate, LightView* lightView)
 {
     if(m_id == 0)
         return;
 
-    int animationPhase = 0;
-    if(animate)
-        animationPhase = std::min<int>((int)(m_animationTimer.ticksElapsed() / m_phaseDuration), getAnimationPhases() - 1);
+    if(animate) {
+        if(g_game.getFeature(Otc::GameEnhancedAnimations) && rawGetThingType()->getAnimator()) {
+            // This requires a separate getPhaseAt method as using getPhase would make all magic effects use the same phase regardless of their appearance time
+            m_animationPhase = std::max<int>(0, rawGetThingType()->getAnimator()->getPhaseAt(m_animationTimer, m_animationPhase));
+        } else {
+            // hack to fix some animation phases duration, currently there is no better solution
+            int ticks = EFFECT_TICKS_PER_FRAME;
+            if (m_id == 33) {
+                ticks <<= 2;
+            }
 
-    int xPattern = offsetX % getNumPatternX();
+            m_animationPhase = std::max<int>(0, std::min<int>((int)(m_animationTimer.ticksElapsed() / ticks), getAnimationPhases() - 1));
+        }
+    }
+
+    int xPattern = m_position.x % getNumPatternX();
     if(xPattern < 0)
         xPattern += getNumPatternX();
 
-    int yPattern = offsetY % getNumPatternY();
+    int yPattern = m_position.y % getNumPatternY();
     if(yPattern < 0)
         yPattern += getNumPatternY();
 
-    rawGetThingType()->draw(dest, scaleFactor, 0, xPattern, yPattern, 0, animationPhase, lightView);
+    rawGetThingType()->draw(dest, 0, xPattern, yPattern, 0, m_animationPhase, Color::white, lightView);
 }
 
 void Effect::onAppear()
 {
     m_animationTimer.restart();
-    m_phaseDuration = EFFECT_TICKS_PER_FRAME;
 
-    // hack to fix some animation phases duration, currently there is no better solution
-    if(m_id == 33)
-        m_phaseDuration <<= 2;
+    int duration = 0;
+    if(g_game.getFeature(Otc::GameEnhancedAnimations)) {
+        duration = getThingType()->getAnimator() ? getThingType()->getAnimator()->getTotalDuration() : 1000;
+    } else {
+        duration = EFFECT_TICKS_PER_FRAME;
 
-    // schedule removal
-    auto self = asEffect();
-    g_dispatcher.scheduleEvent([self]() { g_map.removeThing(self); }, m_phaseDuration * getAnimationPhases());
+        // hack to fix some animation phases duration, currently there is no better solution
+        if(m_id == 33) {
+            duration <<= 2;
+        }
+
+        duration *= getAnimationPhases();
+    }
+
+    // // schedule removal
+    // auto self = asEffect();
+    // g_dispatcher.scheduleEvent([self]() { g_map.removeThing(self); }, duration);
+
+    
+    // schedule removal only if it is not a persistent effect
+    if (!m_isPersistent) {
+        auto self = asEffect();
+        g_dispatcher.scheduleEvent([self]() { g_map.removeThing(self); }, duration);
+    }
 }
 
 void Effect::setId(uint32 id)

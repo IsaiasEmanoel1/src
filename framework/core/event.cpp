@@ -22,17 +22,19 @@
 
 #include "event.h"
 
-Event::Event(const std::function<void()>& callback) :
+Event::Event(const std::string& function, const std::function<void()>& callback, bool botSafe) :
+    m_function(function),
     m_callback(callback),
     m_canceled(false),
-    m_executed(false)
+    m_executed(false),
+    m_botSafe(botSafe)
 {
 }
 
 Event::~Event()
 {
     // assure that we lost callback refs
-    //assert(m_callback == nullptr);
+    //VALIDATE(m_callback == nullptr);
 }
 
 void Event::execute()

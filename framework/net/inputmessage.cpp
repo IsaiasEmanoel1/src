@@ -22,6 +22,7 @@
 
 #include "inputmessage.h"
 #include <framework/util/crypt.h>
+#include <client/map.h>
 
 InputMessage::InputMessage()
 {
@@ -100,16 +101,16 @@ bool InputMessage::decryptRsa(int size)
     return (getU8() == 0x00);
 }
 
-void InputMessage::fillBuffer(uint8 *buffer, uint16 size)
+void InputMessage::fillBuffer(uint8 *buffer, uint32 size)
 {
     checkWrite(m_readPos + size);
     memcpy(m_buffer + m_readPos, buffer, size);
     m_messageSize += size;
 }
 
-void InputMessage::setHeaderSize(uint16 size)
+void InputMessage::setHeaderSize(uint32 size)
 {
-    assert(MAX_HEADER_SIZE - size >= 0);
+    VALIDATE(MAX_HEADER_SIZE >= size);
     m_headerPos = MAX_HEADER_SIZE - size;
     m_readPos = m_headerPos;
 }
@@ -137,4 +138,15 @@ void InputMessage::checkWrite(int bytes)
 {
     if(bytes > BUFFER_MAXSIZE)
         throw stdext::exception("InputMessage max buffer size reached");
+}
+
+void InputMessage::addZlibFooter()
+{
+    if (m_messageSize + 4 > BUFFER_MAXSIZE)
+        return;
+    m_buffer[m_messageSize + m_headerPos] = 0x00;
+    m_buffer[m_messageSize + m_headerPos + 1] = 0x00;
+    m_buffer[m_messageSize + m_headerPos + 2] = 0xFF;
+    m_buffer[m_messageSize + m_headerPos + 3] = 0xFF;
+    m_messageSize += 4;
 }

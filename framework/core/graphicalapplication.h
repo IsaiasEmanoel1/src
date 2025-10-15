@@ -25,46 +25,61 @@
 #define GRAPHICALAPPLICATION_H
 
 #include "application.h"
+#include <atomic>
 #include <framework/graphics/declarations.h>
 #include <framework/core/inputevent.h>
+#include <framework/core/adaptiverenderer.h>
+#include <framework/util/framecounter.h>
 
 class GraphicalApplication : public Application
 {
-    enum {
-        POLL_CYCLE_DELAY = 10
-    };
-
 public:
     void init(std::vector<std::string>& args);
     void deinit();
     void terminate();
     void run();
     void poll();
+    void pollGraphics();
     void close();
 
     bool willRepaint() { return m_mustRepaint; }
     void repaint() { m_mustRepaint = true; }
 
-    void setForegroundPaneMaxFps(int maxFps) { m_foregroundFrameCounter.setMaxFps(maxFps); }
-    void setBackgroundPaneMaxFps(int maxFps) { m_backgroundFrameCounter.setMaxFps(maxFps); }
-
-    int getForegroundPaneFps() { return m_foregroundFrameCounter.getLastFps(); }
-    int getBackgroundPaneFps() { return m_backgroundFrameCounter.getLastFps(); }
-    int getForegroundPaneMaxFps() { return m_foregroundFrameCounter.getMaxFps(); }
-    int getBackgroundPaneMaxFps() { return m_backgroundFrameCounter.getMaxFps(); }
+    void setMaxFps(int maxFps) { m_maxFps = maxFps; }
+    int getMaxFps() { return m_maxFps; }
+    int getFps() { return m_graphicsFrames.getFps(); }
+    int getGraphicsFps() { return m_graphicsFrames.getFps(); }
+    int getProcessingFps() { return m_processingFrames.getFps(); }
 
     bool isOnInputEvent() { return m_onInputEvent; }
 
+    int getIteration() {
+        return m_iteration;
+    }
+
+    void doScreenshot(std::string file);
+    void scaleUp();
+    void scaleDown();
+    void scale(float value);
+    void setSmooth(bool value);
+
+    void doMapScreenshot(std::string fileName);
+
 protected:
     void resize(const Size& size);
-    void inputEvent(const InputEvent& event);
+    void inputEvent(InputEvent event);
 
 private:
+    int m_iteration = 0;
+    std::atomic<float> m_scaling = 1.0;
+    std::atomic<float> m_lastScaling = 1.0;
+    std::atomic_int m_maxFps = 100;
     stdext::boolean<false> m_onInputEvent;
     stdext::boolean<false> m_mustRepaint;
-    AdaptativeFrameCounter m_backgroundFrameCounter;
-    AdaptativeFrameCounter m_foregroundFrameCounter;
-    TexturePtr m_foreground;
+    FrameBufferPtr m_framebuffer, m_mapFramebuffer;
+    FrameCounter m_graphicsFrames;
+    FrameCounter m_processingFrames;
+    stdext::timer m_windowPollTimer;
 };
 
 extern GraphicalApplication g_app;

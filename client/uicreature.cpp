@@ -21,28 +21,44 @@
  */
 
 #include "uicreature.h"
+#include "spritemanager.h"
 #include <framework/otml/otml.h>
-#include <framework/graphics/graphics.h>
+#include <framework/graphics/drawqueue.h>
 
 void UICreature::drawSelf(Fw::DrawPane drawPane)
 {
-    if((drawPane & Fw::ForegroundPane) == 0)
+    if (drawPane != Fw::ForegroundPane)
         return;
 
     UIWidget::drawSelf(drawPane);
 
-    if(m_creature) {
-        Rect drawRect = getPaddingRect();
-        g_painter->setColor(m_imageColor);
-        m_creature->drawOutfit(drawRect, !m_fixedCreatureSize);
+    if (m_creature) {
+        if (m_autoRotating) {
+            auto ticks = (g_clock.millis() % 4000) / 4;
+            Otc::Direction new_dir;
+            if (ticks < 250) {
+                new_dir = Otc::South;
+            } else if (ticks < 500) {
+                new_dir = Otc::East;
+            } else if (ticks < 750) {
+                new_dir = Otc::North;
+            } else {
+                new_dir = Otc::West;
+            }
+            if (new_dir != m_direction) {
+                m_direction = new_dir;
+            }
+        }
+
+        m_creature->drawOutfit(Rect(getPaddingRect().topLeft(), getSize() * m_scale), m_direction, m_imageColor, m_animate, true, m_oldScaling);
     }
 }
 
 void UICreature::setOutfit(const Outfit& outfit)
 {
-    if(!m_creature)
+    if (!m_creature)
         m_creature = CreaturePtr(new Creature);
-    m_creature->setDirection(Otc::South);
+    m_direction = Otc::South;
     m_creature->setOutfit(outfit);
 }
 
@@ -50,33 +66,69 @@ void UICreature::onStyleApply(const std::string& styleName, const OTMLNodePtr& s
 {
     UIWidget::onStyleApply(styleName, styleNode);
 
-    for(const OTMLNodePtr& node : styleNode->children()) {
-        if(node->tag() == "fixed-creature-size")
+    for (const OTMLNodePtr& node : styleNode->children()) {
+        if (node->tag() == "fixed-creature-size")
             setFixedCreatureSize(node->value<bool>());
-        else if(node->tag() == "outfit-id") {
-            Outfit outfit = (m_creature ? m_creature->getOutfit() : Outfit());
+        else if (node->tag() == "outfit-id") {
+            Outfit outfit = getOutfit();
             outfit.setId(node->value<int>());
             setOutfit(outfit);
-        }
-        else if(node->tag() == "outfit-head") {
-            Outfit outfit = (m_creature ? m_creature->getOutfit() : Outfit());
+        } else if (node->tag() == "outfit-head") {
+            Outfit outfit = getOutfit();
             outfit.setHead(node->value<int>());
             setOutfit(outfit);
-        }
-        else if(node->tag() == "outfit-body") {
-            Outfit outfit = (m_creature ? m_creature->getOutfit() : Outfit());
+        } else if (node->tag() == "outfit-body") {
+            Outfit outfit = getOutfit();
             outfit.setBody(node->value<int>());
             setOutfit(outfit);
-        }
-        else if(node->tag() == "outfit-legs") {
-            Outfit outfit = (m_creature ? m_creature->getOutfit() : Outfit());
+        } else if (node->tag() == "outfit-legs") {
+            Outfit outfit = getOutfit();
             outfit.setLegs(node->value<int>());
             setOutfit(outfit);
-        }
-        else if(node->tag() == "outfit-feet") {
-            Outfit outfit = (m_creature ? m_creature->getOutfit() : Outfit());
+        } else if (node->tag() == "outfit-feet") {
+            Outfit outfit = getOutfit();
             outfit.setFeet(node->value<int>());
             setOutfit(outfit);
+        } else if (node->tag() == "outfit-addons") {
+            Outfit outfit = getOutfit();
+            outfit.setAddons(node->value<int>());
+            setOutfit(outfit);
+        } else if (node->tag() == "outfit-mount") {
+            Outfit outfit = getOutfit();
+            outfit.setMount(node->value<int>());
+            setOutfit(outfit);
+        } else if (node->tag() == "outfit-wings") {
+            Outfit outfit = getOutfit();
+            outfit.setWings(node->value<int>());
+            setOutfit(outfit);
+        } else if (node->tag() == "outfit-aura") {
+            Outfit outfit = getOutfit();
+            outfit.setAura(node->value<int>());
+            setOutfit(outfit);
+        } else if (node->tag() == "outfit-shader") {
+            Outfit outfit = getOutfit();
+            outfit.setShader(node->value<std::string>());
+            setOutfit(outfit);
+        } else if (node->tag() == "outfit-center") {
+            setCenter(node->value<bool>());
+        } else if (node->tag() == "scale") {
+            setScale(node->value<float>());
+        } else if (node->tag() == "animate") {
+            setAnimate(node->value<bool>());
+        } else if (node->tag() == "old-scaling") {
+            setOldScaling(node->value<bool>());
         }
     }
+}
+
+void UICreature::onGeometryChange(const Rect& oldRect, const Rect& newRect)
+{
+    UIWidget::onGeometryChange(oldRect, newRect);
+}
+
+void UICreature::setCenter(bool value)
+{
+    Outfit outfit = getOutfit();
+    outfit.setCenter(value);
+    setOutfit(outfit);
 }

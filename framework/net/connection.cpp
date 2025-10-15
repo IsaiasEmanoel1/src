@@ -25,6 +25,9 @@
 #include <framework/core/application.h>
 #include <framework/core/eventdispatcher.h>
 #include <boost/asio.hpp>
+#include <framework/util/stats.h>
+#include <framework/util/extras.h>
+#include <chrono>
 
 asio::io_service g_ioService;
 std::list<std::shared_ptr<asio::streambuf>> Connection::m_outputStreams;
@@ -42,14 +45,13 @@ Connection::Connection() :
 
 Connection::~Connection()
 {
-#ifndef NDEBUG
-    assert(!g_app.isTerminated());
-#endif
+    VALIDATE(!g_app.isTerminated());
     close();
 }
 
 void Connection::poll()
 {
+    AutoStat s(STATS_MAIN, "PollConnection");
     // reset must always be called prior to poll
     g_ioService.reset();
     g_ioService.poll();
@@ -99,7 +101,7 @@ void Connection::connect(const std::string& host, uint16 port, const std::functi
     m_resolver.async_resolve(query, std::bind(&Connection::onResolve, asConnection(), std::placeholders::_1, std::placeholders::_2));
 
     m_readTimer.cancel();
-    m_readTimer.expires_from_now(boost::posix_time::seconds((long)READ_TIMEOUT));
+    m_readTimer.expires_from_now(std::chrono::seconds(READ_TIMEOUT));
     m_readTimer.async_wait(std::bind(&Connection::onTimeout, asConnection(), std::placeholders::_1));
 }
 
@@ -108,7 +110,7 @@ void Connection::internal_connect(asio::ip::basic_resolver<asio::ip::tcp>::itera
     m_socket.async_connect(*endpointIterator, std::bind(&Connection::onConnect, asConnection(), std::placeholders::_1));
 
     m_readTimer.cancel();
-    m_readTimer.expires_from_now(boost::posix_time::seconds((long)READ_TIMEOUT));
+    m_readTimer.expires_from_now(std::chrono::seconds(READ_TIMEOUT));
     m_readTimer.async_wait(std::bind(&Connection::onTimeout, asConnection(), std::placeholders::_1));
 }
 
@@ -126,7 +128,7 @@ void Connection::write(uint8* buffer, size_t size)
             m_outputStream = std::shared_ptr<asio::streambuf>(new asio::streambuf);
 
         m_delayedWriteTimer.cancel();
-        m_delayedWriteTimer.expires_from_now(boost::posix_time::milliseconds(0));
+        m_delayedWriteTimer.expires_from_now(std::chrono::milliseconds(0));
         m_delayedWriteTimer.async_wait(std::bind(&Connection::onCanWrite, asConnection(), std::placeholders::_1));
     }
 
@@ -148,11 +150,11 @@ void Connection::internal_write()
                       std::bind(&Connection::onWrite, asConnection(), std::placeholders::_1, std::placeholders::_2, outputStream));
 
     m_writeTimer.cancel();
-    m_writeTimer.expires_from_now(boost::posix_time::seconds((long)WRITE_TIMEOUT));
+    m_writeTimer.expires_from_now(std::chrono::seconds(WRITE_TIMEOUT));
     m_writeTimer.async_wait(std::bind(&Connection::onTimeout, asConnection(), std::placeholders::_1));
 }
 
-void Connection::read(uint16 bytes, const RecvCallback& callback)
+void Connection::read(uint32 bytes, const RecvCallback& callback)
 {
     if(!m_connected)
         return;
@@ -164,7 +166,7 @@ void Connection::read(uint16 bytes, const RecvCallback& callback)
                      std::bind(&Connection::onRecv, asConnection(), std::placeholders::_1, std::placeholders::_2));
 
     m_readTimer.cancel();
-    m_readTimer.expires_from_now(boost::posix_time::seconds((long)READ_TIMEOUT));
+    m_readTimer.expires_from_now(std::chrono::seconds(READ_TIMEOUT));
     m_readTimer.async_wait(std::bind(&Connection::onTimeout, asConnection(), std::placeholders::_1));
 }
 
@@ -181,7 +183,7 @@ void Connection::read_until(const std::string& what, const RecvCallback& callbac
                            std::bind(&Connection::onRecv, asConnection(), std::placeholders::_1, std::placeholders::_2));
 
     m_readTimer.cancel();
-    m_readTimer.expires_from_now(boost::posix_time::seconds((long)READ_TIMEOUT));
+    m_readTimer.expires_from_now(std::chrono::seconds(READ_TIMEOUT));
     m_readTimer.async_wait(std::bind(&Connection::onTimeout, asConnection(), std::placeholders::_1));
 }
 
@@ -196,7 +198,7 @@ void Connection::read_some(const RecvCallback& callback)
                              std::bind(&Connection::onRecv, asConnection(), std::placeholders::_1, std::placeholders::_2));
 
     m_readTimer.cancel();
-    m_readTimer.expires_from_now(boost::posix_time::seconds((long)READ_TIMEOUT));
+    m_readTimer.expires_from_now(std::chrono::seconds(READ_TIMEOUT));
     m_readTimer.async_wait(std::bind(&Connection::onTimeout, asConnection(), std::placeholders::_1));
 }
 
@@ -227,6 +229,9 @@ void Connection::onConnect(const boost::system::error_code& error)
         // disable nagle's algorithm, this make the game play smoother
         boost::asio::ip::tcp::no_delay option(true);
         m_socket.set_option(option);
+        boost::system::error_code ecc;
+        m_socket.set_option(boost::asio::socket_base::send_buffer_size(524288), ecc);
+        m_socket.set_option(boost::asio::socket_base::receive_buffer_size(524288), ecc);
 
         if(m_connectCallback)
             m_connectCallback();

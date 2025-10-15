@@ -29,11 +29,11 @@
 #define RAD_TO_DEC (180.0/acos(-1))
 
 #ifndef BUILD_COMMIT
-#define BUILD_COMMIT "devel"
+#define BUILD_COMMIT "dev"
 #endif
 
 #ifndef BUILD_REVISION
-#define BUILD_REVISION "0"
+#define BUILD_REVISION 0
 #endif
 
 #ifndef BUILD_TYPE
@@ -247,7 +247,13 @@ namespace Fw
         MouseNoButton = 0,
         MouseLeftButton,
         MouseRightButton,
-        MouseMidButton
+        MouseMidButton,
+        MouseTouch,
+        MouseTouch2,
+        MouseTouch3,
+        MouseButton4,
+        MouseButton5,
+        MouseButtonLast = MouseButton5
     };
 
     enum MouseWheelDirection {
@@ -279,21 +285,15 @@ namespace Fw
         AlternateState = 1024,
         DraggingState = 2048,
         HiddenState = 4096,
-        LastWidgetState = 8192
+        MobileState = 8192,
+        LastWidgetState = 16384
     };
 
     enum DrawPane {
         ForegroundPane = 1,
-        BackgroundPane = 2,
-        BothPanes = 3
+        MapBackgroundPane = 2,
+        MapForegroundPane = 3,
     };
-
-#ifdef FW_SQL
-    enum DatabaseEngine {
-        DatabaseNone = 0,
-        DatabaseMySQL
-    };
-#endif
 }
 
 #endif

@@ -74,7 +74,10 @@ void Config::clear()
 
 void Config::setValue(const std::string& key, const std::string& value)
 {
-    if(key == "") {
+    if (key.empty()) {
+        return;
+    }
+    if(value.empty()) {
         remove(key);
         return;
     }
@@ -146,6 +149,15 @@ OTMLNodePtr Config::getNode(const std::string& key)
 {
     return m_confsDoc->get(key);
 }
+
+int Config::getNodeSize(const std::string& key)
+{
+    auto node = m_confsDoc->get(key);
+    if (node)
+        return node->size();
+    return 0;
+}
+
 
 bool Config::isLoaded()
 {
