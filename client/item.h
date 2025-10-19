@@ -167,33 +167,33 @@ public:
     static ImagePtr getPokeIcon(const std::string& p_name);
 
     // EL CHACOO - TOOLTIP
-    void setPokeballTooltip(std::string poke, uint16_t level, uint16_t gender, std::string nature, uint16_t portrait) {
-        pokename = poke;
-        pokelevel = level;
-        pokegender = gender;
-        pokenature = nature;
-        pokeportrait = portrait;
-    }
+    // void setPokeballTooltip(std::string poke, uint16_t level, uint16_t gender, std::string nature, uint16_t portrait) {
+    //     pokename = poke;
+    //     pokelevel = level;
+    //     pokegender = gender;
+    //     pokenature = nature;
+    //     pokeportrait = portrait;
+    // }
 
-    std::string getPokemon() { 
-        return pokename;  
-    }
+    // std::string getPokemon() { 
+    //     return pokename;  
+    // }
 
-    uint16_t getLevel() {
-        return pokelevel;
-    }
+    // uint16_t getLevel() {
+    //     return pokelevel;
+    // }
 
-    uint16_t getGender() {
-        return pokegender;
-    }
+    // uint16_t getGender() {
+    //     return pokegender;
+    // }
 
-    uint16_t getPortrait() {
-        return pokeportrait;
-    }
+    // uint16_t getPortrait() {
+    //     return pokeportrait;
+    // }
 
-    std::string getNature() {
-        return pokenature;
-    }
+    // std::string getNature() {
+    //     return pokenature;
+    // }
 
     // EL CHACOO - TOOLTIP END
 

@@ -554,6 +554,24 @@ void ProtocolGame::parseMessage(const InputMessagePtr& msg)
             case Proto::GameServerWindowsRequests:
                 parseWindowsRequest(msg);
                 break;
+            case 0xFF: // Pacotes Customizados do Servidor Novo
+            {
+                int subOpcode = msg->getU8(); // Lê o verdadeiro opcode que vem depois do 0xFF
+
+                // Agora podemos tratar os sub-opcodes aqui no futuro, se necessário.
+                // Por enquanto, apenas o fato de lermos o byte já evita a quebra.
+                // g_logger.info(stdext::format("Received custom packet 0xFF with subOpcode 0x%x", subOpcode));
+
+                // Se houver algum pacote específico que precise de tratamento, adicionamos um switch aqui.
+                // Exemplo:
+                // switch(subOpcode) {
+                //    case 0x0B: // Pokedex
+                //       // Leria os dados da pokedex aqui
+                //       break;
+                // }
+
+                break; // Importante!
+            }
             default:
                 stdext::throw_exception(stdext::format("unhandled opcode %d", (int)opcode));
                 break;
@@ -980,13 +998,14 @@ void ProtocolGame::parseGMActions(const InputMessagePtr& msg)
 
     int numViolationReasons;
 
-    if (g_game.getProtocolVersion() >= 850)
-        numViolationReasons = 20;
-    else if (g_game.getProtocolVersion() >= 840)
-        numViolationReasons = 23;
-    else
-        numViolationReasons = 32;
+    // if (g_game.getProtocolVersion() >= 850)
+    //     numViolationReasons = 20;
+    // else if (g_game.getProtocolVersion() >= 840)
+    //     numViolationReasons = 23;
+    // else
+    //     numViolationReasons = 32;
 
+    numViolationReasons = 32;
     for (int i = 0; i < numViolationReasons; ++i)
         actions.push_back(msg->getU8());
     g_game.processGMActions(actions);
@@ -1282,7 +1301,7 @@ void ProtocolGame::parseOpenContainer(const InputMessagePtr& msg)
     std::vector<ItemPtr> items(itemCount);
     for (int i = 0; i < itemCount; i++){
         items[i] = getItem(msg);
-        PokeballTooltip(msg, items[i]); //  EL CHACO
+        // PokeballTooltip(msg, items[i]); //  EL CHACO
     }
     g_game.processOpenContainer(containerId, containerItem, name, capacity, hasParent, items, isUnlocked, hasPages, containerSize, firstIndex);
 }
@@ -1301,7 +1320,7 @@ void ProtocolGame::parseContainerAddItem(const InputMessagePtr& msg)
         slot = msg->getU16(); // slot
     }
     ItemPtr item = getItem(msg);
-    PokeballTooltip(msg, item); //  EL CHACO
+    // PokeballTooltip(msg, item); //  EL CHACO
     g_game.processContainerAddItem(containerId, item, slot);
     
 }
@@ -1316,7 +1335,7 @@ void ProtocolGame::parseContainerUpdateItem(const InputMessagePtr& msg)
         slot = msg->getU8();
     }
     ItemPtr item = getItem(msg);
-    PokeballTooltip(msg, item); //  EL CHACO
+    // PokeballTooltip(msg, item); //  EL CHACO
     g_game.processContainerUpdateItem(containerId, slot, item);
     
 }
@@ -1343,7 +1362,7 @@ void ProtocolGame::parseAddInventoryItem(const InputMessagePtr& msg)
     int slot = msg->getU8();
     ItemPtr item = getItem(msg);
     g_game.processInventoryChange(slot, item);
-    PokeballTooltip(msg, item); //  EL CHACO
+    // PokeballTooltip(msg, item); //  EL CHACO
 }
 
 void ProtocolGame::parseRemoveInventoryItem(const InputMessagePtr& msg)
@@ -1429,7 +1448,7 @@ void ProtocolGame::parseOwnTrade(const InputMessagePtr& msg)
     std::vector<ItemPtr> items(count);
     for (int i = 0; i < count; i++){
         items[i] = getItem(msg);
-        PokeballTooltip(msg, items[i]); //  EL CHACO
+        // PokeballTooltip(msg, items[i]); //  EL CHACO
     }
     
     g_game.processOwnTrade(name, items);
@@ -3277,15 +3296,15 @@ int ProtocolGame::setTileDescription(const InputMessagePtr& msg, Position positi
     if (msg->peekU16() >= 0xff00)
         return msg->getU16() & 0xff;
 
-    if (g_game.getFeature(Otc::GameNewWalking)) {
-        uint16_t groundSpeed = msg->getU16();
-        uint8_t blocking = msg->getU8();
-        g_map.setTileSpeed(position, groundSpeed, blocking);
-    }
+    // if (g_game.getFeature(Otc::GameNewWalking)) {
+    //     uint16_t groundSpeed = msg->getU16();
+    //     uint8_t blocking = msg->getU8();
+    //     g_map.setTileSpeed(position, groundSpeed, blocking);
+    // }
 
-    if (g_game.getFeature(Otc::GameEnvironmentEffect) && !g_game.getFeature(Otc::GameTibia12Protocol)) {
-        msg->getU16();
-    }
+    // if (g_game.getFeature(Otc::GameEnvironmentEffect) && !g_game.getFeature(Otc::GameTibia12Protocol)) {
+    //     msg->getU16();
+    // }
 
     for (int stackPos = 0; stackPos < 256; stackPos++) {
         if (msg->peekU16() >= 0xff00)
@@ -3347,22 +3366,22 @@ Outfit ProtocolGame::getOutfit(const InputMessagePtr& msg, bool ignoreMount)
         }
     }
 
-    if (!ignoreMount) {
-        if (g_game.getFeature(Otc::GamePlayerMounts)) {
-            outfit.setMount(msg->getU16());
-        }
-        if (g_game.getFeature(Otc::GameWingsAndAura)) {
-            outfit.setWings(msg->getU16());
-            outfit.setAura(msg->getU16());
-        }
-        if (g_game.getFeature(Otc::GameOutfitShaders)) {
-            outfit.setShader(msg->getString());
-        }
-        if (g_game.getFeature(Otc::GameHealthInfoBackground)) {
-            outfit.setHealthBar(msg->getU16());
-            outfit.setManaBar(msg->getU16());
-        }
-    }
+    // if (!ignoreMount) {
+    //     if (g_game.getFeature(Otc::GamePlayerMounts)) {
+    //         outfit.setMount(msg->getU16());
+    //     }
+    //     if (g_game.getFeature(Otc::GameWingsAndAura)) {
+    //         outfit.setWings(msg->getU16());
+    //         outfit.setAura(msg->getU16());
+    //     }
+    //     if (g_game.getFeature(Otc::GameOutfitShaders)) {
+    //         outfit.setShader(msg->getString());
+    //     }
+    //     if (g_game.getFeature(Otc::GameHealthInfoBackground)) {
+    //         outfit.setHealthBar(msg->getU16());
+    //         outfit.setManaBar(msg->getU16());
+    //     }
+    // }
 
     return outfit;
 }
@@ -3495,10 +3514,10 @@ CreaturePtr ProtocolGame::getCreature(const InputMessagePtr& msg, int type)
         Light light;
         light.intensity = msg->getU8();
         light.color = msg->getU8();
-        uint32_t level = msg->getU32();
-        uint32_t boost = msg->getU32();
-        std::string b = msg->getString();
-        std::string wl = msg->getString();
+        // uint32_t level = msg->getU32();
+        // uint32_t boost = msg->getU32();
+        // std::string b = msg->getString();
+        // std::string wl = msg->getString();
 
         int speed = msg->getU16();
         if (g_game.getFeature(Otc::GameTibia12Protocol) && g_game.getProtocolVersion() >= 1240)
@@ -3560,10 +3579,10 @@ CreaturePtr ProtocolGame::getCreature(const InputMessagePtr& msg, int type)
             creature->setShield(shield);
             creature->setPassable(!unpass);
             creature->setLight(light);
-            creature->setLevel(level);
-            creature->setBoost(boost);
-            creature->setB(b);
-            creature->setWl(wl);
+            // creature->setLevel(level);
+            // creature->setBoost(boost);
+            // creature->setB(b);
+            // creature->setWl(wl);
 
             if (emblem != -1)
                 creature->setEmblem(emblem);
@@ -3614,9 +3633,9 @@ ItemPtr ProtocolGame::getItem(const InputMessagePtr& msg, int id, bool hasDescri
     if (item->getId() == 0)
         stdext::throw_exception(stdext::format("unable to create item with invalid id %d", id));
 
-    if (g_game.getFeature(Otc::GameThingMarks) && !g_game.getFeature(Otc::GameTibia12Protocol)) {
-        msg->getU8(); // mark
-    }
+    // if (g_game.getFeature(Otc::GameThingMarks) && !g_game.getFeature(Otc::GameTibia12Protocol)) {
+    //     msg->getU8(); // mark
+    // }
 
     if (item->isStackable() || item->isChargeable()) {
         item->setCountOrSubType(g_game.getFeature(Otc::GameCountU16) ? msg->getU16() : msg->getU8());
@@ -3681,34 +3700,34 @@ Position ProtocolGame::getPosition(const InputMessagePtr& msg)
 }
 
 // EL CHACOO
-void ProtocolGame::PokeballTooltip(const InputMessagePtr& msg, const ItemPtr& item)
-{
-    // Lê o byte que atua como um "flag" para saber o tipo de dados que virão.
-    uint8_t hasPokeData = msg->getU8();
+// void ProtocolGame::PokeballTooltip(const InputMessagePtr& msg, const ItemPtr& item)
+// {
+//     // Lê o byte que atua como um "flag" para saber o tipo de dados que virão.
+//     uint8_t hasPokeData = msg->getU8();
 
-    if (hasPokeData == 0x01) {
-        // O servidor está enviando dados de um Pokémon.
-        std::string poke = msg->getString();
-        uint16_t level = msg->getU16();
-        uint16_t gender = msg->getU16();
-        std::string nature = msg->getString();
-        uint16_t portrait = msg->getU16();
-        // Define o tooltip customizado no item.
-        item->setPokeballTooltip(poke, level, gender, nature, portrait);
+//     if (hasPokeData == 0x01) {
+//         // O servidor está enviando dados de um Pokémon.
+//         std::string poke = msg->getString();
+//         uint16_t level = msg->getU16();
+//         uint16_t gender = msg->getU16();
+//         std::string nature = msg->getString();
+//         uint16_t portrait = msg->getU16();
+//         // Define o tooltip customizado no item.
+//         item->setPokeballTooltip(poke, level, gender, nature, portrait);
 
-    } else {
-        // O servidor está enviando dados padrão para um item comum.
-        // É crucial ler esses dados para que o ponteiro de leitura avance corretamente,
-        // mesmo que não precisemos usar esses valores (o cliente já os conhece pelo ID do item).
-        std::string name = msg->getString();   // Lê o nome do item para avançar o ponteiro.
-        uint16_t level = msg->getU16();      // Lê o "level" padrão (valor 1).
-        uint16_t gender = msg->getU16();      // Lê o "gender" padrão (valor 4).
-        std::string desc = msg->getString();   // Lê a descrição.
-        uint16_t id =msg->getU16();      // Lê o client ID.
+//     } else {
+//         // O servidor está enviando dados padrão para um item comum.
+//         // É crucial ler esses dados para que o ponteiro de leitura avance corretamente,
+//         // mesmo que não precisemos usar esses valores (o cliente já os conhece pelo ID do item).
+//         std::string name = msg->getString();   // Lê o nome do item para avançar o ponteiro.
+//         uint16_t level = msg->getU16();      // Lê o "level" padrão (valor 1).
+//         uint16_t gender = msg->getU16();      // Lê o "gender" padrão (valor 4).
+//         std::string desc = msg->getString();   // Lê a descrição.
+//         uint16_t id =msg->getU16();      // Lê o client ID.
 
-        item->setPokeballTooltip(name, level, gender, desc, id);
-    }
+//         item->setPokeballTooltip(name, level, gender, desc, id);
+//     }
 
-    // Chama o evento Lua para que a interface possa atualizar o tooltip.
-    g_lua.callGlobalField("g_game", "onTooltip", item);
-}
+//     // Chama o evento Lua para que a interface possa atualizar o tooltip.
+//     g_lua.callGlobalField("g_game", "onTooltip", item);
+// }

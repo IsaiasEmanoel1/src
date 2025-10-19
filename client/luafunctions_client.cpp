@@ -698,12 +698,12 @@ void Client::registerLuaFunctions()
     g_lua.bindClassMemberFunction<Item>("getCustomAttribute", &Item::getCustomAttribute);
 
     // EL CHACO
-    g_lua.bindClassMemberFunction<Item>("getPokemon", &Item::getPokemon);
-    g_lua.bindClassMemberFunction<Item>("setPokemon", &Item::setPokeballTooltip);
-    g_lua.bindClassMemberFunction<Item>("getLevel", &Item::getLevel);
-    g_lua.bindClassMemberFunction<Item>("getGender", &Item::getGender);
-    g_lua.bindClassMemberFunction<Item>("getNature", &Item::getNature);
-    g_lua.bindClassMemberFunction<Item>("getPortrait", &Item::getPortrait);
+    // g_lua.bindClassMemberFunction<Item>("getPokemon", &Item::getPokemon);
+    // g_lua.bindClassMemberFunction<Item>("setPokemon", &Item::setPokeballTooltip);
+    // g_lua.bindClassMemberFunction<Item>("getLevel", &Item::getLevel);
+    // g_lua.bindClassMemberFunction<Item>("getGender", &Item::getGender);
+    // g_lua.bindClassMemberFunction<Item>("getNature", &Item::getNature);
+    // g_lua.bindClassMemberFunction<Item>("getPortrait", &Item::getPortrait);
 
     g_lua.registerClass<Effect, Thing>();
     g_lua.bindClassStaticFunction<Effect>("create", []{ return EffectPtr(new Effect); });

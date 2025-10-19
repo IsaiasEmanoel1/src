@@ -144,7 +144,7 @@ protected:
 
 public:
     void addPosition(const OutputMessagePtr& msg, const Position& position);
-    void PokeballTooltip(const InputMessagePtr& msg, const ItemPtr& item);
+    // void PokeballTooltip(const InputMessagePtr& msg, const ItemPtr& item);
 
 private:
     void parseStoreButtonIndicators(const InputMessagePtr& msg);
