@@ -554,23 +554,39 @@ void ProtocolGame::parseMessage(const InputMessagePtr& msg)
             case Proto::GameServerWindowsRequests:
                 parseWindowsRequest(msg);
                 break;
-            case 0xFF: // Pacotes Customizados do Servidor Novo
+
+            case 0x3F: // Pacote customizado desconhecido 63
+                    {
+                        // HIPÓTESE: Este pacote pode carregar um U16 ou U32.
+                        // Vamos tentar ler 2 bytes. Se o erro mudar, saberemos que estamos no caminho certo.
+                        // Se este pacote não tiver mais dados, esta linha irá causar um erro de 'eof reached',
+                        // o que também é uma informação útil.
+                        try {
+                             msg->getU16(); // Tentativa de ler 2 bytes
+                        } catch (...) {
+                            // Ignora o erro se não houver bytes suficientes,
+                            // isso pode significar que o pacote era só FF 3F.
+                        }
+                        break;
+                    }
+            case 0xFF: // Pacotes Customizados do Servidor (prefixo)
             {
-                int subOpcode = msg->getU8(); // Lê o verdadeiro opcode que vem depois do 0xFF
+                int subOpcode = msg->getU8(); // Lê o verdadeiro opcode (ex: 0x3F)
 
-                // Agora podemos tratar os sub-opcodes aqui no futuro, se necessário.
-                // Por enquanto, apenas o fato de lermos o byte já evita a quebra.
-                // g_logger.info(stdext::format("Received custom packet 0xFF with subOpcode 0x%x", subOpcode));
+                // Vamos tratar os sub-opcodes que estamos descobrindo
+                switch(subOpcode)
+                {
+                    
 
-                // Se houver algum pacote específico que precise de tratamento, adicionamos um switch aqui.
-                // Exemplo:
-                // switch(subOpcode) {
-                //    case 0x0B: // Pokedex
-                //       // Leria os dados da pokedex aqui
-                //       break;
-                // }
-
-                break; // Importante!
+                    // Se outros erros de "unhandled sub-opcode" aparecerem, adicionaremos aqui.
+                    default:
+                    {
+                        // Se não conhecemos o sub-opcode, o melhor a fazer é parar.
+                        stdext::throw_exception(stdext::format("unhandled custom sub-opcode 0x%x after 0xFF", (int)subOpcode));
+                        break;
+                    }
+                }
+                break;
             }
             default:
                 stdext::throw_exception(stdext::format("unhandled opcode %d", (int)opcode));
