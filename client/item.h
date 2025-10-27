@@ -166,7 +166,7 @@ public:
 
     static ImagePtr getPokeIcon(const std::string& p_name);
 
-    // EL CHACOO - TOOLTIP
+    // // EL CHACOO - TOOLTIP
     // void setPokeballTooltip(std::string poke, uint16_t level, uint16_t gender, std::string nature, uint16_t portrait) {
     //     pokename = poke;
     //     pokelevel = level;
@@ -195,7 +195,7 @@ public:
     //     return pokenature;
     // }
 
-    // EL CHACOO - TOOLTIP END
+    // // EL CHACOO - TOOLTIP END
 
 
 private:

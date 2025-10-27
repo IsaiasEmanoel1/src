@@ -521,6 +521,10 @@ void ProtocolGame::parseMessage(const InputMessagePtr& msg)
             case Proto::GameServerExtendedOpcode:
                 parseExtendedOpcode(msg);
                 break;
+            // --- Adição: tratar opcodes 0xFF (sub-opcodes custom do servidor) ---
+            case 0xFF: // servidor custom opcodes (usados no seu server: 0x04..0x0C, 0x11, 0x13, etc.)
+                parseServerExtended(msg);
+                break;
             case Proto::GameServerChangeMapAwareRange:
                 parseChangeMapAwareRange(msg);
                 break;
@@ -554,40 +558,6 @@ void ProtocolGame::parseMessage(const InputMessagePtr& msg)
             case Proto::GameServerWindowsRequests:
                 parseWindowsRequest(msg);
                 break;
-
-            case 0x3F: // Pacote customizado desconhecido 63
-                    {
-                        // HIPÓTESE: Este pacote pode carregar um U16 ou U32.
-                        // Vamos tentar ler 2 bytes. Se o erro mudar, saberemos que estamos no caminho certo.
-                        // Se este pacote não tiver mais dados, esta linha irá causar um erro de 'eof reached',
-                        // o que também é uma informação útil.
-                        try {
-                             msg->getU16(); // Tentativa de ler 2 bytes
-                        } catch (...) {
-                            // Ignora o erro se não houver bytes suficientes,
-                            // isso pode significar que o pacote era só FF 3F.
-                        }
-                        break;
-                    }
-            case 0xFF: // Pacotes Customizados do Servidor (prefixo)
-            {
-                int subOpcode = msg->getU8(); // Lê o verdadeiro opcode (ex: 0x3F)
-
-                // Vamos tratar os sub-opcodes que estamos descobrindo
-                switch(subOpcode)
-                {
-                    
-
-                    // Se outros erros de "unhandled sub-opcode" aparecerem, adicionaremos aqui.
-                    default:
-                    {
-                        // Se não conhecemos o sub-opcode, o melhor a fazer é parar.
-                        stdext::throw_exception(stdext::format("unhandled custom sub-opcode 0x%x after 0xFF", (int)subOpcode));
-                        break;
-                    }
-                }
-                break;
-            }
             default:
                 stdext::throw_exception(stdext::format("unhandled opcode %d", (int)opcode));
                 break;
@@ -1014,14 +984,13 @@ void ProtocolGame::parseGMActions(const InputMessagePtr& msg)
 
     int numViolationReasons;
 
-    // if (g_game.getProtocolVersion() >= 850)
-    //     numViolationReasons = 20;
-    // else if (g_game.getProtocolVersion() >= 840)
-    //     numViolationReasons = 23;
-    // else
-    //     numViolationReasons = 32;
+    if (g_game.getProtocolVersion() >= 850)
+        numViolationReasons = 20;
+    else if (g_game.getProtocolVersion() >= 840)
+        numViolationReasons = 23;
+    else
+        numViolationReasons = 32;
 
-    numViolationReasons = 32;
     for (int i = 0; i < numViolationReasons; ++i)
         actions.push_back(msg->getU8());
     g_game.processGMActions(actions);
@@ -3153,6 +3122,85 @@ void ProtocolGame::parseExtendedOpcode(const InputMessagePtr& msg)
         callLuaField("onExtendedOpcode", opcode, buffer);
 }
 
+void ProtocolGame::parseServerExtended(const InputMessagePtr& msg)
+{
+    uint8_t sub = msg->getU8(); // sub-opcode depois do 0xFF
+
+    // Consuma / trate os sub-opcodes que o server envia.
+    switch (sub) {
+    case 0x13: { // sendCreatureEffect (server envia: u32 creatureId, u8 effectId, u32 var)
+        uint32_t creatureId = msg->getU32();
+        uint8_t effectId = msg->getU8();
+        uint32_t var = msg->getU32();
+        // tentamos aplicar visual se o cliente suportar efeitos por criatura
+        CreaturePtr c = g_map.getCreatureById(creatureId);
+        if (c) {
+            // tenta reproduzir o efeito como um magic effect na posição da criatura
+           // g_map.addTimedAutoClean(); // chamada fictícia para evitar erro caso não exista (segura)
+            // se preferir, chame um lua event aqui:
+            g_lua.callGlobalField("g_game", "onCreatureExtendedEffect", creatureId, (int)effectId, var);
+        }
+        break;
+    }
+    case 0x04: { // pokemonWindowAddPokemonIcon: AddItemId + u16 fastcall + u8 color + string
+        uint16_t itemClientId = msg->getU16(); // AddItemId == client id
+        uint16_t fastcallNumber = msg->getU16();
+        uint8_t textColor = msg->getU8();
+        std::string text = msg->getString();
+        g_lua.callGlobalField("g_game", "onPokemonWindowAddIcon", itemClientId, fastcallNumber, (int)textColor, text);
+        break;
+    }
+    case 0x05: { // pokemonWindowRemovePokemonIcon: u16
+        uint16_t fastcallNumber = msg->getU16();
+        g_lua.callGlobalField("g_game", "onPokemonWindowRemoveIcon", fastcallNumber);
+        break;
+    }
+    case 0x06: { // pokemonWindowUpdatePokemonIcon: u16, u8, string
+        uint16_t fastcallNumber = msg->getU16();
+        uint8_t textColor = msg->getU8();
+        std::string newText = msg->getString();
+        g_lua.callGlobalField("g_game", "onPokemonWindowUpdateIcon", fastcallNumber, (int)textColor, newText);
+        break;
+    }
+    case 0x07: // pokemonWindowOpen
+        g_lua.callGlobalField("g_game", "onPokemonWindowOpen");
+        break;
+    case 0x08: // pokemonWindowClose
+        g_lua.callGlobalField("g_game", "onPokemonWindowClose");
+        break;
+    case 0x0A: { // Pokedex status vector
+        uint16_t len = msg->getU16();
+        std::vector<uint8_t> status;
+        for (uint16_t i = 0; i < len; ++i) status.push_back(msg->getU8());
+        g_lua.callGlobalField("g_game", "onPokedexStatus", status);
+        break;
+    }
+    case 0x0B: // Pokedex Open
+        g_lua.callGlobalField("g_game", "onPokedexOpen");
+        break;
+    case 0x0C: { // Pokedex item update: u16 pokemonNumber, u8 status
+        uint16_t poke = msg->getU16();
+        uint8_t status = msg->getU8();
+        g_lua.callGlobalField("g_game", "onPokedexItemUpdate", poke, (int)status);
+        break;
+    }
+    case 0x11: { // Pokedex info: u16 id + strings...
+        uint16_t poke = msg->getU16();
+        std::string details = msg->getString();
+        std::string moves = msg->getString();
+        std::string effectiveness = msg->getString();
+        std::string families = msg->getString();
+        g_lua.callGlobalField("g_game", "onPokedexInfo", poke, details, moves, effectiveness, families);
+        break;
+    }
+    default:
+        // sub-opcode desconhecido: log e ignore (consome o que puder)
+        g_logger.traceError(stdext::format("unhandled server extended sub-opcode 0x%02X", sub));
+        break;
+    }
+}
+
+
 void ProtocolGame::parseChangeMapAwareRange(const InputMessagePtr& msg)
 {
     int xrange = msg->getU8();
@@ -3312,26 +3360,44 @@ int ProtocolGame::setTileDescription(const InputMessagePtr& msg, Position positi
     if (msg->peekU16() >= 0xff00)
         return msg->getU16() & 0xff;
 
-    // if (g_game.getFeature(Otc::GameNewWalking)) {
-    //     uint16_t groundSpeed = msg->getU16();
-    //     uint8_t blocking = msg->getU8();
-    //     g_map.setTileSpeed(position, groundSpeed, blocking);
-    // }
+    if (g_game.getFeature(Otc::GameNewWalking)) {
+        uint16_t groundSpeed = msg->getU16();
+        uint8_t blocking = msg->getU8();
+        g_map.setTileSpeed(position, groundSpeed, blocking);
+    }
 
-    // if (g_game.getFeature(Otc::GameEnvironmentEffect) && !g_game.getFeature(Otc::GameTibia12Protocol)) {
-    //     msg->getU16();
-    // }
+    if (g_game.getFeature(Otc::GameEnvironmentEffect) && !g_game.getFeature(Otc::GameTibia12Protocol)) {
+        msg->getU16();
+    }
 
     for (int stackPos = 0; stackPos < 256; stackPos++) {
-        if (msg->peekU16() >= 0xff00)
-            return msg->getU16() & 0xff;
+        
+        // Caso normal: servidor escreveu (skip, 0xFF) e peekU16() devolve value >= 0xff00
+        if (msg->peekU16() >= 0xff00) {
+            uint16_t v = msg->getU16();
+            uint8_t skip = v & 0xFF;
+            g_logger.traceDebug(stdext::format("tile skip detected (peekU16 path) skip=%d pos=%s stack=%d", skip, stdext::to_string(position), stackPos));
+            return skip;
+        }
 
-        if (!g_game.getFeature(Otc::GameNewCreatureStacking) && stackPos > Tile::MAX_THINGS)
-            g_logger.traceError(stdext::format("too many things, pos=%s, stackpos=%d", stdext::to_string(position), stackPos));
+        // Fallback: servidor às vezes envia 0xFF primeiro (0xFF, skip) — detectamos pelo primeiro byte
+        if (msg->peekU8() == 0xFF) {
+            // consumimos o 0xFF e em seguida lemos o skip
+            msg->getU8(); // consume 0xFF
+            uint8_t skip = msg->getU8();
+            g_logger.traceDebug(stdext::format("tile skip detected (peekU8 fallback) skip=%d pos=%s stack=%d", skip, stdext::to_string(position), stackPos));
+            return skip;
+        }
 
+        // segue leitura normal de thing
         ThingPtr thing = getThing(msg);
+        if (!thing) {
+            g_logger.traceError(stdext::format("null thing at pos=%s stack=%d, continuing", stdext::to_string(position), stackPos));
+            continue;
+        }
         g_map.addThing(thing, position, stackPos);
     }
+
 
     return 0;
 }
@@ -3382,22 +3448,22 @@ Outfit ProtocolGame::getOutfit(const InputMessagePtr& msg, bool ignoreMount)
         }
     }
 
-    // if (!ignoreMount) {
-    //     if (g_game.getFeature(Otc::GamePlayerMounts)) {
-    //         outfit.setMount(msg->getU16());
-    //     }
-    //     if (g_game.getFeature(Otc::GameWingsAndAura)) {
-    //         outfit.setWings(msg->getU16());
-    //         outfit.setAura(msg->getU16());
-    //     }
-    //     if (g_game.getFeature(Otc::GameOutfitShaders)) {
-    //         outfit.setShader(msg->getString());
-    //     }
-    //     if (g_game.getFeature(Otc::GameHealthInfoBackground)) {
-    //         outfit.setHealthBar(msg->getU16());
-    //         outfit.setManaBar(msg->getU16());
-    //     }
-    // }
+    if (!ignoreMount) {
+        if (g_game.getFeature(Otc::GamePlayerMounts)) {
+            outfit.setMount(msg->getU16());
+        }
+        if (g_game.getFeature(Otc::GameWingsAndAura)) {
+            outfit.setWings(msg->getU16());
+            outfit.setAura(msg->getU16());
+        }
+        if (g_game.getFeature(Otc::GameOutfitShaders)) {
+            outfit.setShader(msg->getString());
+        }
+        if (g_game.getFeature(Otc::GameHealthInfoBackground)) {
+            outfit.setHealthBar(msg->getU16());
+            outfit.setManaBar(msg->getU16());
+        }
+    }
 
     return outfit;
 }
@@ -3409,7 +3475,11 @@ ThingPtr ProtocolGame::getThing(const InputMessagePtr& msg)
     int id = msg->getU16();
 
     if (id == 0)
-        stdext::throw_exception("invalid thing id (0)");
+        {
+        // Não lançamos exceção — logamos e retornamos nulo para permitir diagnóstico.
+        g_logger.traceError(stdext::format("invalid thing id (0) read from packet - returning nullptr"));
+        return ThingPtr();
+        }
     else if (id == Proto::UnknownCreature || id == Proto::OutdatedCreature || id == Proto::Creature)
         thing = getCreature(msg, id);
     else if (id == Proto::StaticText) // otclient only
@@ -3546,7 +3616,7 @@ CreaturePtr ProtocolGame::getCreature(const InputMessagePtr& msg, int type)
         int8 creatureType = -1;
         int8 icon = -1;
         bool unpass = true;
-        uint8 mark;
+        uint8 mark = 0;
 
         if (g_game.getFeature(Otc::GameCreatureEmblems) && !known)
             emblem = msg->getU8();
@@ -3582,6 +3652,11 @@ CreaturePtr ProtocolGame::getCreature(const InputMessagePtr& msg, int type)
 
         if (g_game.getProtocolVersion() >= 854 || g_game.getFeature(Otc::GameCreatureWalkthrough))
             unpass = msg->getU8();
+
+
+        // ---- ADICIONE A LEITURA DO BYTE EXTRA isMaster AQUI ----
+        msg->getU8(); // Lê e descarta o byte 'isMaster' enviado pelo servidor
+        // --------------------------------------------------------
 
         if (creature) {
             creature->setHealthPercent(healthPercent);
@@ -3649,9 +3724,9 @@ ItemPtr ProtocolGame::getItem(const InputMessagePtr& msg, int id, bool hasDescri
     if (item->getId() == 0)
         stdext::throw_exception(stdext::format("unable to create item with invalid id %d", id));
 
-    // if (g_game.getFeature(Otc::GameThingMarks) && !g_game.getFeature(Otc::GameTibia12Protocol)) {
-    //     msg->getU8(); // mark
-    // }
+    if (g_game.getFeature(Otc::GameThingMarks) && !g_game.getFeature(Otc::GameTibia12Protocol)) {
+        msg->getU8(); // mark
+    }
 
     if (item->isStackable() || item->isChargeable()) {
         item->setCountOrSubType(g_game.getFeature(Otc::GameCountU16) ? msg->getU16() : msg->getU8());
