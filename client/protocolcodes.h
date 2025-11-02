@@ -137,7 +137,7 @@ namespace Proto {
         GameServerPlayerDataBasic           = 159, // 950
         GameServerPlayerData                = 160,
         GameServerPlayerSkills              = 161,
-        GameServerPlayerState               = 162,
+        GameServerPlayerIcons               = 162,
         GameServerClearTarget               = 163,
         GameServerPlayerModes               = 167,
         GameServerSpellDelay                = 164, // 870
@@ -160,6 +160,7 @@ namespace Proto {
         GameServerWalkWait                  = 182,
         GameServerUnjustifiedStats          = 183,
         GameServerPvpSituations             = 184,
+        GameServerPlayerState               = 185,
         GameServerHunting                   = 187,
         GameServerFloorChangeUp             = 190,
         GameServerFloorChangeDown           = 191,
