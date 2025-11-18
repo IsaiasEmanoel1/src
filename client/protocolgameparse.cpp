@@ -1070,8 +1070,14 @@ void ProtocolGame::parseMapDescription(const InputMessagePtr& msg)
 
     g_map.setCentralPosition(pos);
 
-    AwareRange range = g_map.getAwareRange();
-    setMapDescription(msg, pos.x - range.left, pos.y - range.top, pos.z, range.horizontal(), range.vertical());
+    // O servidor está enviando 32x32 (baseado em Map::maxClientViewportX=15 e Map::maxClientViewportY=15 no server)
+    // Coordenada inicial do mapa (left, top) = centralPos - 15. Largura/Altura = (15+1)*2 = 32.
+    int viewportX = 15;
+    int viewportY = 15; // Este é o valor usado pelo servidor para calcular o início da view.
+    int mapWidth = (viewportX + 1) * 2; // 32
+    int mapHeight = (viewportY + 1) * 2; // 32
+    
+    setMapDescription(msg, pos.x - viewportX, pos.y - viewportY, pos.z, mapWidth, mapHeight);
 
     if (m_mapKnown) {
         // We know about the map so its not from logging in, it must be teleport
@@ -1120,8 +1126,15 @@ void ProtocolGame::parseMapMoveNorth(const InputMessagePtr& msg)
 
     g_map.setCentralPosition(pos);
 
-    AwareRange range = g_map.getAwareRange();
-    setMapDescription(msg, pos.x - range.left, pos.y - range.top, pos.z, range.horizontal(), 1);
+    // Hardcode os valores do AwareRange (15) para garantir a leitura 32x1
+    int viewportX = 15;
+    int viewportY = 15; 
+    int mapWidth = (viewportX + 1) * 2; // 32
+
+    // O cliente deve ler 32 de largura e 1 de altura (a linha superior)
+    // Coordenada Y de início = pos.y - viewportY (topo da nova view)
+    setMapDescription(msg, pos.x - viewportX, pos.y - viewportY, pos.z, mapWidth, 1); // <--- Ajuste aqui
+// ...
 }
 
 void ProtocolGame::parseMapMoveEast(const InputMessagePtr& msg)
@@ -1135,8 +1148,15 @@ void ProtocolGame::parseMapMoveEast(const InputMessagePtr& msg)
 
     g_map.setCentralPosition(pos);
 
-    AwareRange range = g_map.getAwareRange();
-    setMapDescription(msg, pos.x + range.right, pos.y - range.top, pos.z, 1, range.vertical());
+    // Hardcode os valores do AwareRange (15)
+    int viewportX = 15;
+    int viewportY = 15; 
+    int mapHeight = (viewportY + 1) * 2; // 32
+
+    // Cliente deve ler 1 de largura e 32 de altura (a coluna da direita)
+    // Coordenada X de início = pos.x + viewportX (coluna mais à direita)
+    setMapDescription(msg, pos.x + viewportX, pos.y - viewportY, pos.z, 1, mapHeight); // <--- Ajuste aqui
+// ...
 }
 
 void ProtocolGame::parseMapMoveSouth(const InputMessagePtr& msg)
@@ -1149,9 +1169,14 @@ void ProtocolGame::parseMapMoveSouth(const InputMessagePtr& msg)
     pos.y++;
 
     g_map.setCentralPosition(pos);
+// Hardcode os valores do AwareRange (15) para sincronizar com o servidor 32x32.
+    int viewportX = 15; 
+    int viewportY = 15; 
+    int mapWidth = (viewportX + 1) * 2; // 32
 
-    AwareRange range = g_map.getAwareRange();
-    setMapDescription(msg, pos.x - range.left, pos.y + range.bottom, pos.z, range.horizontal(), 1);
+    // Cliente deve ler 32 de largura e 1 de altura (a linha inferior)
+    // Coordenada Y de início = pos.y + viewportY (a linha mais ao sul da nova view)
+    setMapDescription(msg, pos.x - viewportX, pos.y + viewportY, pos.z, mapWidth, 1);
 }
 
 void ProtocolGame::parseMapMoveWest(const InputMessagePtr& msg)
@@ -1164,9 +1189,15 @@ void ProtocolGame::parseMapMoveWest(const InputMessagePtr& msg)
     pos.x--;
 
     g_map.setCentralPosition(pos);
+    
+    // Hardcode os valores do AwareRange (15) para sincronizar com o servidor 32x32.
+    int viewportX = 15;
+    int viewportY = 15;
+    int mapHeight = (viewportY + 1) * 2; // 32
 
-    AwareRange range = g_map.getAwareRange();
-    setMapDescription(msg, pos.x - range.left, pos.y - range.top, pos.z, 1, range.vertical());
+    // Cliente deve ler 1 de largura e 32 de altura (a coluna da esquerda)
+    // Coordenada X de início = pos.x - viewportX (a coluna mais a oeste da nova view)
+    setMapDescription(msg, pos.x - viewportX, pos.y - viewportY, pos.z, 1, mapHeight);
 }
 
 void ProtocolGame::parseUpdateTile(const InputMessagePtr& msg)
@@ -1180,8 +1211,9 @@ void ProtocolGame::parseTileAddThing(const InputMessagePtr& msg)
     Position pos = getPosition(msg);
     int stackPos = -1;
 
-    if (g_game.getFeature(Otc::GameTileAddThingWithStackpos))
-        stackPos = msg->getU8();
+    // if (g_game.getFeature(Otc::GameTileAddThingWithStackpos))
+        // stackPos = msg->getU8();
+    stackPos = msg->getU8();
 
     ThingPtr thing = getThing(msg);
     g_map.addThing(thing, pos, stackPos);
@@ -1189,25 +1221,46 @@ void ProtocolGame::parseTileAddThing(const InputMessagePtr& msg)
 
 void ProtocolGame::parseTileTransformThing(const InputMessagePtr& msg)
 {
+    // Lemos a Posição e Stackpos usando getMappedThing
+    // Isso prepara o ponteiro para lermos o ID do objeto
     ThingPtr thing = getMappedThing(msg);
-    ThingPtr newThing = getThing(msg);
 
-    if (!thing) {
-        g_logger.traceError("no thing");
-        return;
+    // Verificamos o próximo U16 sem consumir (peek)
+    uint16_t id = msg->peekU16();
+
+    // Lógica do Servidor (protocolgame.cpp linhas 1854):
+    // Se for CreatureTurn, ele envia 0x63 (99) no lugar do ItemID.
+    if (id == 0x63) { 
+        // --- É UM GIRO DE CRIATURA ---
+        msg->getU16(); // Consome o 0x63 (Fake ItemID)
+        uint32_t creatureId = msg->getU32();
+        Otc::Direction direction = (Otc::Direction)msg->getU8();
+
+        CreaturePtr creature = g_map.getCreatureById(creatureId);
+        if (creature) {
+            creature->turn(direction);
+        }
+    } 
+    else {
+        // --- É UMA TRANSFORMAÇÃO DE ITEM (ex: porta abrindo, field sumindo) ---
+        ThingPtr newThing = getThing(msg); // Lê o novo item
+
+        if (!thing) {
+            g_logger.traceError("parseTileTransformThing: no thing found to transform");
+            return;
+        }
+
+        Position pos = thing->getPosition();
+        int stackpos = thing->getStackPos();
+
+        if (!g_map.removeThing(thing)) {
+            g_logger.traceError("parseTileTransformThing: unable to remove thing");
+            return;
+        }
+
+        g_map.addThing(newThing, pos, stackpos);
     }
-
-    Position pos = thing->getPosition();
-    int stackpos = thing->getStackPos();
-
-    if (!g_map.removeThing(thing)) {
-        g_logger.traceError("unable to remove thing");
-        return;
-    }
-
-    g_map.addThing(newThing, pos, stackpos);
 }
-
 void ProtocolGame::parseTileRemoveThing(const InputMessagePtr& msg)
 {
     ThingPtr thing = getMappedThing(msg);
@@ -1222,27 +1275,64 @@ void ProtocolGame::parseTileRemoveThing(const InputMessagePtr& msg)
 
 void ProtocolGame::parseCreatureMove(const InputMessagePtr& msg)
 {
-    ThingPtr thing = getMappedThing(msg);
+    // LER BYTES MANUALMENTE (Para ter controle sobre a Posição Antiga)
+    // getMappedThing consome os bytes e perdemos a info se falhar. Vamos fazer na mão.
+    uint16 x = msg->getU16();
+    uint16 y = msg->getU16();
+    uint8 z = msg->getU8();
+    uint8 stackpos = msg->getU8();
+    Position oldPos(x, y, z);
+
     Position newPos = getPosition(msg);
 
+    // No 8.54 não tem stepDuration, mantemos removido.
     uint16_t stepDuration = 0;
-    if (g_game.getFeature(Otc::GameNewWalking))
-        stepDuration = msg->getU16();
 
+    // Tenta encontrar a criatura na posição antiga
+    ThingPtr thing = g_map.getThing(oldPos, stackpos);
+
+    // Lógica de Fallback Robusta (Correção do Freeze)
     if (!thing || !thing->isCreature()) {
-        g_logger.traceError("no creature found to move");
+        // 1. Tenta achar qualquer criatura no tile antigo (pode ser que o stackpos mudou)
+        TilePtr oldTile = g_map.getTile(oldPos);
+        if (oldTile) {
+            const std::vector<CreaturePtr>& creatures = oldTile->getCreatures();
+            if (!creatures.empty()) {
+                // Pega a última criatura da lista (geralmente a do topo)
+                thing = creatures.back();
+            }
+        }
+    }
+
+    // 2. Verificação de Emergência para o Local Player (Evita o congelamento)
+    // Se ainda não achou, e o LocalPlayer estava lá (ou o cliente acha que estava), usamos ele.
+    if (!thing) {
+        CreaturePtr localPlayer = g_game.getLocalPlayer();
+        if (localPlayer) {
+            Position localPos = localPlayer->getPosition();
+            // Se o player está na posição antiga OU se ele já está na nova (prediction),
+            // assumimos que o pacote é para ele para corrigir a sincronia.
+            if (localPos == oldPos || localPos == newPos) {
+                thing = localPlayer;
+            }
+        }
+    }
+
+    // Se mesmo com todas as tentativas não achou nada, aí sim retornamos para evitar crash
+    if (!thing || !thing->isCreature()) {
         return;
     }
 
-    if (!g_map.removeThing(thing)) {
-        g_logger.traceError("unable to remove creature");
-        return;
+    // Executa o movimento
+    TilePtr oldTile = g_map.getTile(oldPos);
+    if (oldTile) {
+        oldTile->removeThing(thing); // Remove do tile antigo
     }
 
     CreaturePtr creature = thing->static_self_cast<Creature>();
-    creature->allowAppearWalk(stepDuration);
+    creature->allowAppearWalk(0); // 0 porque é 8.54
 
-    g_map.addThing(thing, newPos, -1);
+    g_map.addThing(thing, newPos, -1); // Adiciona na nova posição
 }
 
 void ProtocolGame::parseOpenContainer(const InputMessagePtr& msg)
@@ -1647,8 +1737,8 @@ void ProtocolGame::parseCreatureSpeed(const InputMessagePtr& msg)
     uint id = msg->getU32();
 
     int baseSpeed = -1;
-    if (g_game.getProtocolVersion() >= 1059)
-        baseSpeed = msg->getU16();
+    // if (g_game.getProtocolVersion() >= 1059)
+    //     baseSpeed = msg->getU16();
 
     int speed = msg->getU16();
 
@@ -1671,8 +1761,8 @@ void ProtocolGame::parseCreatureSkulls(const InputMessagePtr& msg)
 {
     uint id = msg->getU32();
     int skull = msg->getU8();
-    uint32_t level = msg->getU32();
-    uint32_t boost = msg->getU32();
+    // uint32_t level = msg->getU32();
+    // uint32_t boost = msg->getU32();
 
     CreaturePtr creature = g_map.getCreatureById(id);
     if (creature)
@@ -1680,13 +1770,13 @@ void ProtocolGame::parseCreatureSkulls(const InputMessagePtr& msg)
     else
         g_logger.traceError("could not get creature");
 
-    creature->setSkull(skull);
-    if(level > 0) {
-        creature->setLevel(level);
-    }
-    if(boost > 0) {
-        creature->setBoost(boost);
-    }
+    // creature->setSkull(skull);
+    // if(level > 0) {
+    //     creature->setLevel(level);
+    // }
+    // if(boost > 0) {
+    //     creature->setBoost(boost);
+    // }
 }
 
 void ProtocolGame::parseCreatureShields(const InputMessagePtr& msg)
@@ -2462,11 +2552,11 @@ void ProtocolGame::parseVipAdd(const InputMessagePtr& msg)
     // Forçar a leitura apenas do status (que é o isOnline do servidor 8.54)
     status = msg->getU8(); // Corresponde ao `isOnline` no server 8.54
 
-    if (g_game.getFeature(Otc::GameTibia12Protocol)) {
-        int groups = msg->getU8();
-        for (int i = 0; i < groups; ++i)
-            msg->getU8(); // group id
-    }
+    // if (g_game.getFeature(Otc::GameTibia12Protocol)) {
+    //     int groups = msg->getU8();
+    //     for (int i = 0; i < groups; ++i)
+    //         msg->getU8(); // group id
+    // }
 
     g_game.processVipAdd(id, name, status, desc, iconId, notifyLogin);
 }
@@ -3258,38 +3348,47 @@ int ProtocolGame::setFloorDescription(const InputMessagePtr& msg, int x, int y, 
 int ProtocolGame::setTileDescription(const InputMessagePtr& msg, Position position)
 {
     g_map.cleanTile(position);
-    if (msg->peekU16() >= 0xff00)
-        return msg->getU16() & 0xff;
 
+    // Apenas um item de chão: O servidor envia o ID do item.
+    // O cliente deve checar se o próximo é o marcador de SKIP antes de ler o primeiro item.
+
+    uint16_t firstId = msg->peekU16();
+    
+    // Se o próximo bloco for um SKIP marker (XX FF ou FF FF)
+    if (firstId >= 0xff00) {
+        uint16_t v = msg->getU16();
+        return v & 0xFF; 
+    }
+    
+    // Se não for um SKIP, DEVE SER O PRIMEIRO ITEM ID.
+    // Lemos Things até o próximo bloco ser um SKIP ou 0x0000
     for (int stackPos = 0; stackPos < 256; stackPos++) {
-        // Caso normal: servidor escreveu (skip, 0xFF) e peekU16() devolve value >= 0xff00
-        if (msg->peekU16() >= 0xff00) {
+        
+        uint16_t nextId = msg->peekU16();
+
+        // Check 1: Skip Marker (XX FF)
+        if (nextId >= 0xff00) {
             uint16_t v = msg->getU16();
-            uint8_t skip = v & 0xFF;
-            g_logger.traceDebug(stdext::format("tile skip detected (peekU16 path) skip=%d pos=%s stack=%d", skip, stdext::to_string(position), stackPos));
-            return skip;
+            return v & 0xFF; 
         }
 
-        // Fallback: servidor às vezes envia 0xFF primeiro (0xFF, skip) — detectamos pelo primeiro byte
-        // if (msg->peekU8() == 0xFF) {
-        //     // consumimos o 0xFF e em seguida lemos o skip
-        //     msg->getU8(); // consume 0xFF
-        //     uint8_t skip = msg->getU8();
-        //     g_logger.traceDebug(stdext::format("tile skip detected (peekU8 fallback) skip=%d pos=%s stack=%d", skip, stdext::to_string(position), stackPos));
-        //     return skip;
+        // Check 2: Finalizador de Stack/Tile (0x0000)
+        // if (nextId == 0x0000) {
+        //      msg->getU16(); // Consome o 0x0000 (2 bytes)
+        //      return 0;      
         // }
 
-        // segue leitura normal de thing
+        // Leitura normal do Thing
         ThingPtr thing = getThing(msg);
+        
         if (!thing) {
-            g_logger.traceError(stdext::format("null thing at pos=%s stack=%d, continuing", stdext::to_string(position), stackPos));
-            continue;
+            break; 
         }
+        
         g_map.addThing(thing, position, stackPos);
     }
 
-
-    return 0;
+    return 0; 
 }
 
 // Em: protocolgameparse.cpp
@@ -3310,8 +3409,9 @@ Outfit ProtocolGame::getOutfit(const InputMessagePtr& msg, bool ignoreMount)
         int legs = msg->getU8();
         int feet = msg->getU8();
         int addons = 0;
-        if (g_game.getFeature(Otc::GamePlayerAddons))
-            addons = msg->getU8();
+        // if (g_game.getFeature(Otc::GamePlayerAddons))
+            // addons = msg->getU8();
+        addons = msg->getU8();
 
         if (!g_things.isValidDatId(lookType, ThingCategoryCreature)) {
             g_logger.traceError(stdext::format("invalid outfit looktype %d", lookType));
@@ -3369,29 +3469,40 @@ ThingPtr ProtocolGame::getMappedThing(const InputMessagePtr& msg)
     ThingPtr thing;
     uint16 x = msg->getU16();
 
-    if (x != 0xffff) {
+    if (x != 0xffff) { 
         Position pos;
         pos.x = x;
         pos.y = msg->getU16();
         pos.z = msg->getU8();
-        uint8 stackpos = msg->getU8();
+        uint8 stackpos = msg->getU8(); 
 
-        VALIDATE(stackpos != 255);
         thing = g_map.getThing(pos, stackpos);
-        if (!thing)
-            g_logger.traceError(stdext::format("no thing at pos:%s, stackpos:%d", stdext::to_string(pos), stackpos));
+
+        if (!thing) {
+            // Fallback para encontrar criaturas se o stackpos falhar
+            for (uint8_t s = 0; s < 10; ++s) { 
+                ThingPtr t = g_map.getThing(pos, s);
+                if (t && t->isCreature()) {
+                    thing = t; 
+                    break;     
+                }
+            }
+        }
+
+        if (!thing) {
+            // Esse erro deve parar de acontecer com a correção do Passo 1 (0x6A)
+            g_logger.traceError(stdext::format("getMappedThing: no thing at pos:%s, stackpos:%d", stdext::to_string(pos), stackpos));
+        }
     } else {
         uint32 id = msg->getU32();
         thing = g_map.getCreatureById(id);
-        if (!thing)
-            g_logger.traceError(stdext::format("no creature with id %u", id));
     }
 
     return thing;
 }
 
-CreaturePtr ProtocolGame::getCreature(const InputMessagePtr& msg, int type)
 
+CreaturePtr ProtocolGame::getCreature(const InputMessagePtr& msg, int type)
 {
 
     if (type == 0)
@@ -3587,11 +3698,20 @@ CreaturePtr ProtocolGame::getCreature(const InputMessagePtr& msg, int type)
         uint8 mark = 0;
 
 
-
-        if (g_game.getFeature(Otc::GameCreatureEmblems) && !known)
-
+        // --- CORREÇÃO: Forçar a leitura do War Emblem (War Emblem só é enviado se !known) ---
+        if (!known) { // O servidor 8.54 sempre envia um byte 0x00 aqui se a criatura for nova (War Emblem)
+            msg->getU8(); 
+            // Nota: Se você usar GameCreatureEmblems ativado no cliente (feature),
+            // a linha original 'if (g_game.getFeature(Otc::GameCreatureEmblems) && !known)' já resolveria.
+            // Como você está forçando o 8.54, o War Emblem deve ser lido aqui.
+        } else if (g_game.getFeature(Otc::GameCreatureEmblems) && !known) { // Linha original do cliente que pode falhar se a feature estiver desligada
+            // Se você não forçar acima, e a feature estiver desligada, este bloco é ignorado, mas o servidor enviou o byte.
             emblem = msg->getU8();
+        }
 
+        // if (g_game.getFeature(Otc::GameCreatureEmblems) && !known)
+
+        //     emblem = msg->getU8();
 
         // if (g_game.getFeature(Otc::GameThingMarks)) {
 
@@ -3788,15 +3908,14 @@ ItemPtr ProtocolGame::getItem(const InputMessagePtr& msg, int id, bool hasDescri
     // }
 
     if (item->isStackable() || item->isChargeable()) {
-        // CORRIGIDO: Força a leitura de U16 (2 bytes) para itens stackáveis
-        // pois o servidor 8.54 envia U16 e a feature flag está falhando.
-        item->setCountOrSubType(msg->getU16());
+        // CORREÇÃO DEFINITIVA: O servidor envia 2 bytes (U16). O cliente DEVE ler 2 bytes para sincronizar o ponteiro.
+        item->setCountOrSubType(msg->getU16()); 
     }
     else if (item->isFluidContainer() || item->isSplash()) {
-        // CORRIGIDO: Força a leitura de U16 (2 bytes) para fluidos
-        // pois o servidor 8.54 envia U16.
+        // CORREÇÃO DEFINITIVA: O servidor envia 2 bytes (U16). O cliente DEVE ler 2 bytes para sincronizar o ponteiro.
         item->setCountOrSubType(msg->getU16());
     }
+    
     // else if (item->rawGetThingType()->isContainer() && (g_game.getFeature(Otc::GameTibia12Protocol) || g_game.getFeature(Otc::GameQuickLootFlags))) {
     //     // not sure about this part
     //     uint8_t hasQuickLootFlags = msg->getU8();

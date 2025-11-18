@@ -978,7 +978,7 @@ uint16 Creature::getStepDuration(bool ignoreDiagonal, Otc::Direction dir)
 
     if (!ignoreDiagonal && (m_lastStepDirection == Otc::NorthWest || m_lastStepDirection == Otc::NorthEast ||
                             m_lastStepDirection == Otc::SouthWest || m_lastStepDirection == Otc::SouthEast))
-        interval *= 1.8;
+        interval *= 2.5;
 
     if (!isServerWalking() && g_game.getFeature(Otc::GameSlowerManualWalking)) {
         interval += 25;
